@@ -126,6 +126,26 @@ export function IconeOlho({ className }: IconeProps) {
   );
 }
 
+/** Olho riscado - par de `IconeOlho`, usado pro estado "senha oculta" do botão de
+ * mostrar/ocultar senha (tela de login). */
+export function IconeOlhoFechado({ className }: IconeProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M3 3l18 18" />
+    </svg>
+  );
+}
+
 /** Prédio com janelas - usada no menu do topo pra "Cadastro de condomínio". Antes esse
  * link reusava `IconeCasa` (a casinha, que é a marca do sistema) - ficavam idênticos lado
  * a lado no header, então trocado por um prédio de verdade (várias unidades, condiz com
