@@ -1691,3 +1691,158 @@ export async function excluirParametro(token: string, id: number): Promise<void>
     await parseOrThrow(res);
   }
 }
+
+/** Mensagem privada (pedido do Romulo): conversa livre entre morador OU funcionário
+ * (autor) e um ou mais funcionários com login do mesmo condomínio (destinatários) -
+ * privacidade estrita, só quem participa vê. */
+export type MensagemPrivadaDocumentoResponse = {
+  id: number;
+  mensagemId: number;
+  nomeArquivo: string;
+  url: string;
+  tipoMime: string;
+  tamanhoBytes: number;
+  createdAt: string;
+};
+
+/** `minha` já vem calculado pelo backend por quem está vendo (mesmo padrão de
+ * `DemandaNotaResponse.podeResponder`) - usar isso pra alinhar o balão, nunca comparar
+ * nome (dois funcionários podem ter o mesmo nome). */
+export type MensagemPrivadaResponse = {
+  id: number;
+  conversaId: number;
+  autorTipo: "morador" | "funcionario";
+  autorNome: string;
+  texto: string;
+  minha: boolean;
+  anexos: MensagemPrivadaDocumentoResponse[];
+  createdAt: string;
+};
+
+export type ConversaPrivadaDestinatarioResponse = {
+  funcionarioId: number;
+  nome: string;
+};
+
+/** `pendente` é calculado pelo backend por quem está vendo (destaque vermelho no menu -
+ * ver `existePendenciaMensagemPrivada`). `autorBlocoNome`/`autorNumeroUnidade` só vêm
+ * preenchidos quando `autorTipo` é `"morador"` (pedido do Romulo: mostrar a unidade do
+ * morador na listagem) - `autorBlocoNome` fica `null` em condomínio de casas. */
+export type ConversaPrivadaResumoResponse = {
+  id: number;
+  autorTipo: "morador" | "funcionario";
+  autorNome: string;
+  autorBlocoNome: string | null;
+  autorNumeroUnidade: string | null;
+  destinatarios: ConversaPrivadaDestinatarioResponse[];
+  ultimaMensagemTexto: string | null;
+  ultimaMensagemAutorNome: string | null;
+  ultimaMensagemEm: string;
+  pendente: boolean;
+  createdAt: string;
+};
+
+export type ConversaPrivadaDetalheResponse = {
+  id: number;
+  autorTipo: "morador" | "funcionario";
+  autorNome: string;
+  destinatarios: ConversaPrivadaDestinatarioResponse[];
+  mensagens: MensagemPrivadaResponse[];
+  createdAt: string;
+};
+
+/** Funcionário COM LOGIN (perfil preenchido) do condomínio - alimenta a combo de busca de
+ * destinatário POR NOME (pedido do Romulo: "vai ser difícil saber o cpf do funcionário").
+ * `cpf` continua vindo (é o identificador mandado de volta em `criarConversaPrivada`), só
+ * não é mais exibido - `perfil` entra no lugar do CPF na sugestão. */
+export type CandidatoDestinatarioResponse = {
+  cpf: string;
+  nome: string;
+  perfil: FuncionarioPerfil;
+};
+
+export async function listarCandidatosMensagemPrivada(token: string): Promise<CandidatoDestinatarioResponse[]> {
+  const res = await fetch(`${API_URL}/api/conversas-privadas/candidatos`, { headers: authHeaders(token) });
+  return parseOrThrow<CandidatoDestinatarioResponse[]>(res);
+}
+
+/** Mais recente primeiro - autor OU destinatário, conforme o papel de quem está logado.
+ * Paginado (pedido do Romulo: "mesma quantidade da listagem de demandas" - 20 por página,
+ * mesmo padrão de `listarPaginaDemandas`). */
+export async function listarConversasPrivadas(
+  token: string,
+  pagina = 0,
+): Promise<PaginaResponse<ConversaPrivadaResumoResponse>> {
+  const res = await fetch(`${API_URL}/api/conversas-privadas?pagina=${pagina}`, { headers: authHeaders(token) });
+  return parseOrThrow<PaginaResponse<ConversaPrivadaResumoResponse>>(res);
+}
+
+/** Boolean leve pro destaque vermelho no ícone do menu - evita carregar a listagem inteira
+ * só pra saber se tem alguma pendência (polling periódico, ver `MenuMensagensPrivadas`). */
+export async function existePendenciaMensagemPrivada(token: string): Promise<boolean> {
+  const res = await fetch(`${API_URL}/api/conversas-privadas/pendente`, { headers: authHeaders(token) });
+  return parseOrThrow<boolean>(res);
+}
+
+/** Abre o chat completo - o backend marca como vista por quem está abrindo na mesma
+ * tacada (some o destaque vermelho). */
+export async function buscarConversaPrivada(token: string, id: number): Promise<ConversaPrivadaDetalheResponse> {
+  const res = await fetch(`${API_URL}/api/conversas-privadas/${id}`, { headers: authHeaders(token) });
+  return parseOrThrow<ConversaPrivadaDetalheResponse>(res);
+}
+
+export async function criarConversaPrivada(
+  token: string,
+  destinatariosCpf: string[],
+  texto: string,
+): Promise<ConversaPrivadaDetalheResponse> {
+  const res = await fetch(`${API_URL}/api/conversas-privadas`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ destinatariosCpf, texto }),
+  });
+  return parseOrThrow<ConversaPrivadaDetalheResponse>(res);
+}
+
+/** "Conversa livre" (pedido do Romulo) - qualquer participante pode escrever, não só
+ * responder uma vez. */
+export async function enviarMensagemPrivada(
+  token: string,
+  conversaId: number,
+  texto: string,
+): Promise<MensagemPrivadaResponse> {
+  const res = await fetch(`${API_URL}/api/conversas-privadas/mensagens`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ conversaId, texto }),
+  });
+  return parseOrThrow<MensagemPrivadaResponse>(res);
+}
+
+/** Só imagem (jpeg/png/webp/gif) - máximo por mensagem é parametrizável (padrão 1). Só o
+ * autor da mensagem pode anexar. */
+export async function uploadFotoMensagemPrivada(
+  token: string,
+  mensagemId: number,
+  arquivo: File,
+): Promise<MensagemPrivadaDocumentoResponse> {
+  const corpo = new FormData();
+  corpo.append("mensagemId", String(mensagemId));
+  corpo.append("arquivo", arquivo);
+  const res = await fetch(`${API_URL}/api/mensagem-privada-documentos`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: corpo,
+  });
+  return parseOrThrow<MensagemPrivadaDocumentoResponse>(res);
+}
+
+export async function removerFotoMensagemPrivada(token: string, id: number): Promise<void> {
+  const res = await fetch(`${API_URL}/api/mensagem-privada-documentos/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  if (!res.ok) {
+    await parseOrThrow(res);
+  }
+}

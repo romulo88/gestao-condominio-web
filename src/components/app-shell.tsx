@@ -3,10 +3,18 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ContextoDto, labelContexto, listarDemandas, listarMeusContextos, PERFIL_LABEL, trocarContexto } from "@/lib/api";
+import {
+  ContextoDto,
+  existePendenciaMensagemPrivada,
+  labelContexto,
+  listarDemandas,
+  listarMeusContextos,
+  PERFIL_LABEL,
+  trocarContexto,
+} from "@/lib/api";
 import { destinoPosLogin, limparSessao, salvarSessao, Sessao } from "@/lib/session";
 import { IconeCasa } from "@/components/auth-layout";
-import { IconeSair } from "@/components/icons";
+import { IconeMensagemPrivada, IconeSair } from "@/components/icons";
 import { SinoTarefas } from "@/components/sino-tarefas";
 import { MenuNotasPendentes } from "@/components/menu-notas-pendentes";
 import { MenuEtapaVencida } from "@/components/menu-etapa-vencida";
@@ -75,6 +83,66 @@ const INTERVALO_ATUALIZACAO_ALERTAS_MS = 60_000;
  * vez de todo mundo escutar tudo o tempo inteiro - só gera UMA busca extra, na hora certa,
  * nunca em intervalo/polling. */
 export const EVENTO_ALERTAS_DEMANDAS = "commander:alertas-demandas-atualizados";
+
+/** Mesma ideia de `EVENTO_ALERTAS_DEMANDAS`, só que pra Mensagem privada (pedido do
+ * Romulo) - a página de mensagens dispara isso ao abrir uma conversa ou enviar uma
+ * mensagem, pra o destaque vermelho do ícone no menu sumir/aparecer na hora, sem esperar o
+ * próximo minuto do intervalo. */
+export const EVENTO_MENSAGEM_PRIVADA_ATUALIZADA = "commander:mensagem-privada-atualizada";
+
+/** Ícone de "mensagem privada não vista" no menu, redondo (balãozinho) - pedido do Romulo,
+ * pros dois papéis (morador E funcionário, diferente de `MenuIconesAlerta` que é só
+ * funcionário). Componente independente de propósito: é o único alerta que também existe
+ * pro morador, então não faz sentido empilhar dentro de `MenuIconesAlerta` (que teria que
+ * deixar de retornar `null` cedo pra morador só por causa desse um ícone). */
+function MenuMensagensPrivadas({ sessao }: { sessao: Sessao }) {
+  const [pendente, setPendente] = useState(false);
+
+  useEffect(() => {
+    if (sessao.tipoPapel !== "funcionario" && sessao.tipoPapel !== "morador") return;
+
+    let cancelado = false;
+    function atualizar() {
+      existePendenciaMensagemPrivada(sessao.token)
+        .then((valor) => {
+          if (!cancelado) setPendente(valor);
+        })
+        .catch(() => {
+          // Silencioso de propósito - é só um indicador ambiente no menu (mesmo espírito
+          // de `MenuIconesAlerta`).
+        });
+    }
+
+    atualizar();
+    const intervalo = setInterval(atualizar, INTERVALO_ATUALIZACAO_ALERTAS_MS);
+    function aoFicarVisivel() {
+      if (document.visibilityState === "visible") atualizar();
+    }
+    document.addEventListener("visibilitychange", aoFicarVisivel);
+    window.addEventListener(EVENTO_MENSAGEM_PRIVADA_ATUALIZADA, atualizar);
+
+    return () => {
+      cancelado = true;
+      clearInterval(intervalo);
+      document.removeEventListener("visibilitychange", aoFicarVisivel);
+      window.removeEventListener(EVENTO_MENSAGEM_PRIVADA_ATUALIZADA, atualizar);
+    };
+  }, [sessao.tipoPapel, sessao.token]);
+
+  if (sessao.tipoPapel !== "funcionario" && sessao.tipoPapel !== "morador") return null;
+
+  return (
+    <Link
+      href="/mensagens-privadas"
+      title={pendente ? "Tem mensagem privada não vista - clique pra abrir" : "Mensagem privada"}
+      className={`flex h-9 w-9 items-center justify-center rounded-md hover:bg-slate-800 ${
+        pendente ? "text-red-400 hover:text-red-300" : "text-slate-200 hover:text-white"
+      }`}
+    >
+      <IconeMensagemPrivada className="h-5 w-5" />
+    </Link>
+  );
+}
 
 /** Ícones de alerta - nota pendente, etapa em atraso e tarefas agendadas, só funcionário
  * (pedido do Romulo: "deixar destacado no centro do menu os ícones de alerta"). Grupo
@@ -258,6 +326,7 @@ export function AppShell({
         </div>
         <div className="flex items-center justify-center gap-1">
           <MenuIconesAlerta sessao={sessao} />
+          <MenuMensagensPrivadas sessao={sessao} />
         </div>
         <div className="flex min-w-0 items-center justify-end gap-2 text-sm sm:gap-4">
           <button
