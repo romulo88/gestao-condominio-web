@@ -67,6 +67,7 @@ import { MarkdownEditor } from "@/components/markdown-editor";
 import { UploadImagens } from "@/components/upload-imagens";
 import { Button, Input } from "@/components/ui";
 import {
+  IconeAjuda,
   IconeArquivadas,
   IconeChecklist,
   IconeFuncionarioOcioso,
@@ -294,6 +295,10 @@ function KanbanPageInner() {
   // Popup de demandas arquivadas (pedido do Romulo, ícone ao lado do de ociosidade) - sem
   // busca própria, `demandas` já vem com `arquivada` (v82).
   const [arquivadasAberto, setArquivadasAberto] = useState(false);
+
+  // Legenda dos ícones/cores do quadro (pedido do Romulo) - sem busca própria, só texto
+  // fixo explicando o que já existe na tela.
+  const [legendaAberta, setLegendaAberta] = useState(false);
 
   // Modal de detalhe - aberto clicando na descrição/título do card. Reúne os mesmos
   // campos da listagem de `/demandas` (descrição, etapas, imagens, acesso sigiloso) num
@@ -1253,6 +1258,16 @@ function KanbanPageInner() {
           >
             <IconeArquivadas className="h-6 w-6" />
           </button>
+          {/* Legenda dos ícones/cores do quadro (pedido do Romulo) - vale pros dois
+              papéis, mesmo lugar dos outros ícones informativos do cabeçalho. */}
+          <button
+            type="button"
+            onClick={() => setLegendaAberta(true)}
+            title="Legenda dos ícones e cores"
+            className="text-slate-400 hover:text-slate-600"
+          >
+            <IconeAjuda className="h-6 w-6" />
+          </button>
         </div>
       </div>
 
@@ -1625,6 +1640,126 @@ function KanbanPageInner() {
                   ))}
                 </ul>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Legenda dos ícones/cores do quadro (pedido do Romulo) - cada linha mostra o
+          elemento de verdade (mesma cor/ícone da tela), não só uma descrição em texto.
+          Avatar de responsável e ícone de ociosidade só aparecem pra funcionário (mesmo
+          critério de `podeGerenciar` que já esconde eles do morador na tela de verdade -
+          não faz sentido explicar pro morador algo que ele nunca vai ver). */}
+      {legendaAberta && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+          onClick={() => setLegendaAberta(false)}
+        >
+          <div
+            className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-5 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-sm font-semibold text-slate-900">Legenda do Kanban</h2>
+              <button
+                type="button"
+                onClick={() => setLegendaAberta(false)}
+                className="shrink-0 text-slate-400 hover:text-slate-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-5 text-sm">
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">No card</p>
+                <ul className="space-y-2.5">
+                  <li className="flex items-center gap-2.5">
+                    <span className="w-4 shrink-0 text-center font-mono text-xs italic text-red-600">#0</span>
+                    <span className="text-slate-600">Número/título em vermelho itálico - demanda sigilosa.</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <IconeNotaPendente className="h-4 w-4 shrink-0 text-amber-600" />
+                    <span className="text-slate-600">
+                      Tem nota (pergunta ou resposta) ainda não lida ou sem resposta.
+                    </span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <IconeUpload className="h-4 w-4 shrink-0 text-slate-400" />
+                    <span className="text-slate-600">Sem imagem anexada ainda.</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <IconeUpload className="h-4 w-4 shrink-0 text-emerald-600" />
+                    <span className="text-slate-600">Já tem imagem anexada.</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <IconeRelogio className="h-4 w-4 shrink-0 text-slate-400" />
+                    <span className="text-slate-600">
+                      Tempo na coluna atual - passe o mouse pra ver quantos dias, clique pra ver o histórico completo.
+                    </span>
+                  </li>
+                  {podeGerenciar && (
+                    <li className="flex items-center gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white bg-slate-300 text-[9px] font-bold text-slate-600">
+                        RS
+                      </span>
+                      <span className="text-slate-600">
+                        Foto ou iniciais - funcionário(s) responsável(is) pela demanda (só funcionário vê).
+                      </span>
+                    </li>
+                  )}
+                  <li className="flex items-center gap-2.5">
+                    <span className="shrink-0 rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-medium text-white">
+                      Etiqueta
+                    </span>
+                    <span className="text-slate-600">Classificação livre - cor escolhida por quem cadastra.</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <span className="h-4 w-4 shrink-0 rounded border-2 border-red-400 bg-white" />
+                    <span className="text-slate-600">Contorno vermelho - tem etapa com prazo já vencido.</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <span className="h-4 w-4 shrink-0 rounded border-2 border-emerald-400 bg-white" />
+                    <span className="text-slate-600">
+                      Contorno verde - tem etapa com prazo em aberto (ainda não vencida).
+                    </span>
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">Na coluna</p>
+                <ul className="space-y-2.5">
+                  <li className="flex items-center gap-2.5">
+                    <span className="h-4 w-4 shrink-0 rounded border-2 border-red-300 bg-slate-100" />
+                    <span className="text-slate-600">Contorno vermelho - coluna oculta pro morador.</span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <span className="h-4 w-4 shrink-0 rounded border-2 border-emerald-400 bg-slate-100" />
+                    <span className="text-slate-600">
+                      Contorno verde - coluna finalística (fim do fluxo, permite arquivar a demanda).
+                    </span>
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">No topo</p>
+                <ul className="space-y-2.5">
+                  {podeGerenciar && (
+                    <li className="flex items-center gap-2.5">
+                      <IconeFuncionarioOcioso className="h-5 w-5 shrink-0 text-red-500" />
+                      <span className="text-slate-600">
+                        Existe funcionário sem nenhuma demanda atribuída (fica cinza quando não tem nenhum).
+                      </span>
+                    </li>
+                  )}
+                  <li className="flex items-center gap-2.5">
+                    <IconeArquivadas className="h-5 w-5 shrink-0 text-slate-400" />
+                    <span className="text-slate-600">Abre a lista de demandas arquivadas.</span>
+                  </li>
+                </ul>
+              </div>
             </div>
           </div>
         </div>

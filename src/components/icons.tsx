@@ -453,6 +453,25 @@ export function IconeLink({ className }: IconeProps) {
   );
 }
 
+/** Círculo com "?" - pedido do Romulo: abre a legenda dos ícones/cores do Kanban. */
+export function IconeAjuda({ className }: IconeProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.5 9.3a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .8-1 1.6v.3" />
+      <circle cx="12" cy="16.8" r="0.75" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** Alça de arrastar (6 pontinhos, 2 colunas x 3 linhas) - pedido do Romulo: reordenar as
  * colunas do Kanban por drag and drop em vez de digitar um número de ordem. Só decorativa
  * (indica que a linha é arrastável); o `draggable` de verdade vai na linha inteira. */
