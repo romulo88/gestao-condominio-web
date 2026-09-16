@@ -14,6 +14,7 @@ import { destinoPosLogin, salvarSessao } from "@/lib/session";
 import { apenasDigitos, formatarCpf } from "@/lib/format";
 import { AuthLayout, BrandMark } from "@/components/auth-layout";
 import { Button, Input } from "@/components/ui";
+import { IconeOlho, IconeOlhoFechado } from "@/components/icons";
 
 /** "Esqueceu sua senha?" abre um modal de 2 passos: CPF+e-mail (`verificarIdentidade`)
  * confirma quem é a pessoa, depois senha atual+nova (`trocarSenha`) troca de verdade -
@@ -27,6 +28,7 @@ export default function LoginPage() {
   // escolher em qual condomínio + papel entrar.
   const [cpf, setCpf] = useState("");
   const [senha, setSenha] = useState("");
+  const [mostrarSenha, setMostrarSenha] = useState(false);
   const [manterConectado, setManterConectado] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -208,15 +210,26 @@ export default function LoginPage() {
           placeholder="CPF"
         />
 
-        <Input
-          id="senha"
-          type="password"
-          autoComplete="current-password"
-          required
-          value={senha}
-          onChange={(e) => setSenha(e.target.value)}
-          placeholder="Senha"
-        />
+        <div className="relative">
+          <Input
+            id="senha"
+            type={mostrarSenha ? "text" : "password"}
+            autoComplete="current-password"
+            required
+            value={senha}
+            onChange={(e) => setSenha(e.target.value)}
+            placeholder="Senha"
+            className="pr-11"
+          />
+          <button
+            type="button"
+            onClick={() => setMostrarSenha((v) => !v)}
+            aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
+            className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-400 hover:text-slate-600"
+          >
+            {mostrarSenha ? <IconeOlhoFechado className="h-5 w-5" /> : <IconeOlho className="h-5 w-5" />}
+          </button>
+        </div>
 
         <label className="flex items-center gap-2 pt-1 text-sm text-slate-600">
           <input
