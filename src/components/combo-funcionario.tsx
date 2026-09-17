@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CandidatoResponsavelResponse } from "@/lib/api";
+import { CandidatoResponsavelResponse, PERFIL_LABEL } from "@/lib/api";
 import { formatarCpf } from "@/lib/format";
 import { Input } from "@/components/ui";
 
@@ -18,13 +18,16 @@ type Props = {
 };
 
 function rotulo(c: CandidatoResponsavelResponse): string {
-  return `${c.nome} — ${formatarCpf(c.cpf)}`;
+  const cargo = c.perfil ? PERFIL_LABEL[c.perfil] : c.funcao || "Sem perfil";
+  return `${c.nome} — ${cargo}`;
 }
 
 /** Combo com sugestão pro "Atribuir responsável" - mesmo padrão do `ComboPessoa` (item
  * 4.8), só que mais simples: candidato é sempre funcionário, sem unidade nem distinção
- * de papel. Digitar filtra por nome ou CPF; clicar numa sugestão chama `onSelecionar`
- * com o CPF já formatado - "Atribuir" continua um passo separado, de propósito. */
+ * de papel. Digitar filtra por nome ou CPF (busca continua aceitando os dois - só a
+ * sugestão exibida trocou de CPF pra perfil, pedido do Romulo); clicar numa sugestão
+ * chama `onSelecionar` com o CPF já formatado - "Atribuir" continua um passo separado,
+ * de propósito. */
 export function ComboFuncionario({
   candidatos,
   onSelecionar,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CandidatoAcessoResponse } from "@/lib/api";
+import { CandidatoAcessoResponse, PERFIL_LABEL } from "@/lib/api";
 import { formatarCpf } from "@/lib/format";
 import { Input } from "@/components/ui";
 
@@ -18,19 +18,26 @@ type Props = {
 };
 
 function rotulo(c: CandidatoAcessoResponse): string {
-  const meio = c.tipoPessoa === "morador" ? (c.unidade ?? "morador") : "funcionário";
-  return `${c.nome} — ${meio} — ${formatarCpf(c.cpf)}`;
+  const meio =
+    c.tipoPessoa === "morador"
+      ? c.unidade ?? "morador"
+      : c.perfil
+        ? PERFIL_LABEL[c.perfil]
+        : c.funcao || "Sem perfil";
+  return `${c.nome} — ${meio}`;
 }
 
 /** Combo com sugestão pro "Gerenciar acesso" (item 4.8): digitar filtra as pessoas ativas
- * do condomínio (`candidatos`, ver `listarCandidatosAcesso`) por nome, unidade ou CPF;
- * clicar numa sugestão chama `onSelecionar` com o CPF já formatado - quem usa este
- * componente só precisa jogar esse CPF no mesmo lugar que já guardava antes (o "Conceder"
- * continua sendo um passo separado, de propósito - selecionar aqui não concede sozinho). */
+ * do condomínio (`candidatos`, ver `listarCandidatosAcesso`) só por NOME (pedido do
+ * Romulo); clicar numa sugestão chama `onSelecionar` com o CPF já formatado - quem usa
+ * este componente só precisa jogar esse CPF no mesmo lugar que já guardava antes (o
+ * "Conceder" continua sendo um passo separado, de propósito - selecionar aqui não concede
+ * sozinho). Sugestão mostra nome + unidade (morador) ou nome + cargo/função (funcionário) -
+ * nunca mais o CPF, que só é usado internamente pra identificar quem foi selecionado. */
 export function ComboPessoa({
   candidatos,
   onSelecionar,
-  placeholder = "Nome, unidade ou CPF",
+  placeholder = "Nome",
   valorSelecionado,
 }: Props) {
   const [busca, setBusca] = useState("");
@@ -47,18 +54,10 @@ export function ComboPessoa({
   }
 
   const buscaNormalizada = busca.trim().toLowerCase();
-  const buscaDigitos = buscaNormalizada.replace(/\D/g, "");
   const sugeridos = useMemo(() => {
     if (!candidatos || buscaNormalizada.length === 0) return [];
-    return candidatos
-      .filter(
-        (c) =>
-          c.nome.toLowerCase().includes(buscaNormalizada) ||
-          (c.unidade ?? "").toLowerCase().includes(buscaNormalizada) ||
-          (buscaDigitos.length > 0 && c.cpf.includes(buscaDigitos)),
-      )
-      .slice(0, 8);
-  }, [candidatos, buscaNormalizada, buscaDigitos]);
+    return candidatos.filter((c) => c.nome.toLowerCase().includes(buscaNormalizada)).slice(0, 8);
+  }, [candidatos, buscaNormalizada]);
 
   function selecionar(c: CandidatoAcessoResponse) {
     setBusca(rotulo(c));

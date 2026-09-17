@@ -2166,7 +2166,12 @@ function KanbanPageInner() {
                     <ul className="mb-3 space-y-1">
                       {responsaveisDoDetalhe.map((r) => (
                         <li key={r.id} className="flex items-center justify-between gap-2 text-sm text-slate-700">
-                          <span>{r.nome}</span>
+                          <span>
+                            {r.nome}{" "}
+                            {(r.perfil || r.funcao) && (
+                              <span className="text-xs text-slate-400">({r.perfil ? PERFIL_LABEL[r.perfil] : r.funcao})</span>
+                            )}
+                          </span>
                           <button
                             type="button"
                             onClick={() => handleRemoverResponsavel(r.id)}

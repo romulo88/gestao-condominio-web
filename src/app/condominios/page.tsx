@@ -88,7 +88,7 @@ function formatarData(iso: string): string {
 }
 
 const FORM_VAZIO = { nome: "", cnpj: "", tipo: "apartamento" as CondominioTipo, quantidadeCasas: "" };
-const FUNCIONARIO_VAZIO = { cpf: "", nome: "", email: "", perfil: "" as FuncionarioPerfil | "" };
+const FUNCIONARIO_VAZIO = { cpf: "", nome: "", email: "", perfil: "" as FuncionarioPerfil | "", funcao: "" };
 const MORADOR_VAZIO = { cpf: "", nome: "", email: "", blocoId: "", numeroUnidade: "" };
 
 // Tipos das linhas das tabelas Funcionário/Morador - já vêm com nome/CPF/e-mail/foto
@@ -685,7 +685,8 @@ export default function CondominiosPage() {
         funcionarioId = funcionario.id;
       }
       const perfil = novoFuncionario.perfil || null;
-      await criarVinculoFuncionario(sessao.token, funcionarioId, condominioIdAtual, perfil);
+      const funcao = novoFuncionario.funcao.trim() || null;
+      await criarVinculoFuncionario(sessao.token, funcionarioId, condominioIdAtual, perfil, funcao);
       // Local-append não serve mais com paginação de verdade (o registro novo pode cair
       // em qualquer posição, ou fora da página atual) - reexecuta a busca paginada.
       recarregarPaginaFuncionarios();
@@ -710,6 +711,7 @@ export default function CondominiosPage() {
       nome: f.nome,
       email: f.email ?? "",
       perfil: f.perfil ?? "",
+      funcao: f.funcao ?? "",
     });
     setErroFuncionarios(null);
     setErroLinhaFuncionario(null);
@@ -728,10 +730,11 @@ export default function CondominiosPage() {
     setSalvandoFuncionario(true);
     try {
       const perfil = novoFuncionario.perfil || null;
-      await atualizarVinculoFuncionario(sessao.token, funcionarioEditandoId, perfil, novoFuncionario.email);
+      const funcao = novoFuncionario.funcao.trim() || null;
+      await atualizarVinculoFuncionario(sessao.token, funcionarioEditandoId, perfil, novoFuncionario.email, funcao);
       setFuncionarios((atual) =>
         (atual ?? []).map((f) =>
-          f.vinculoId === funcionarioEditandoId ? { ...f, perfil, email: novoFuncionario.email } : f,
+          f.vinculoId === funcionarioEditandoId ? { ...f, perfil, funcao, email: novoFuncionario.email } : f,
         ),
       );
       cancelarEdicaoFuncionario();
@@ -1753,6 +1756,17 @@ export default function CondominiosPage() {
                     ))}
                   </select>
 
+                  {/* Só faz sentido pra quem não tem perfil (pedido do Romulo: identificar
+                      o que a pessoa faz - jardineiro, rondista, etc. - já que "sem perfil"
+                      sozinho não diz nada sobre a função de verdade). */}
+                  {novoFuncionario.perfil === "" && (
+                    <Input
+                      placeholder="Função (ex: jardineiro, rondista)"
+                      value={novoFuncionario.funcao}
+                      onChange={(e) => setNovoFuncionario((f) => ({ ...f, funcao: e.target.value }))}
+                    />
+                  )}
+
                   {/* Reativar só aparece aqui dentro - mesmo padrão da edição de morador. */}
                   {funcionarioEditandoId !== null && funcionarioEmEdicao?.situacao === "inativo" && (
                     <div className="flex items-center justify-between rounded-lg bg-amber-50 px-4 py-3 text-sm">
@@ -1871,7 +1885,7 @@ export default function CondominiosPage() {
                         <td className="py-2 text-slate-900">{f.nome}</td>
                         <td className="py-2 text-slate-500">{formatarCpf(f.cpf)}</td>
                         <td className="py-2 text-slate-500">
-                          {f.perfil ? PERFIL_LABEL[f.perfil] : "Sem perfil"}
+                          {f.perfil ? PERFIL_LABEL[f.perfil] : f.funcao || "Sem perfil"}
                         </td>
                         <td className="py-2">
                           <span

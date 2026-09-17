@@ -412,6 +412,9 @@ export type FuncionarioCondominioResponse = {
   funcionarioId: number;
   condominioId: number;
   perfil: FuncionarioPerfil | null;
+  /** Texto livre (jardineiro, rondista, etc.) - pedido do Romulo pra identificar quem
+   * não tem perfil (sem acesso ao sistema), mas não é exigido nem restrito a esse caso. */
+  funcao: string | null;
   situacao: Situacao;
   createdAt: string;
   updatedAt: string;
@@ -439,6 +442,7 @@ export type FuncionarioCondominioResumoResponse = {
   email: string | null;
   fotoUrl: string | null;
   perfil: FuncionarioPerfil | null;
+  funcao: string | null;
   situacao: Situacao;
 };
 
@@ -460,26 +464,28 @@ export async function criarVinculoFuncionario(
   funcionarioId: number,
   condominioId: number,
   perfil: FuncionarioPerfil | null,
+  funcao: string | null,
 ): Promise<FuncionarioCondominioResponse> {
   const res = await fetch(`${API_URL}/api/funcionarios-condominios`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ funcionarioId, condominioId, perfil }),
+    body: JSON.stringify({ funcionarioId, condominioId, perfil, funcao }),
   });
   return parseOrThrow<FuncionarioCondominioResponse>(res);
 }
 
-/** Só corrige perfil/e-mail - trocar de funcionário ou condomínio é um vínculo novo, não uma edição. */
+/** Só corrige perfil/e-mail/função - trocar de funcionário ou condomínio é um vínculo novo, não uma edição. */
 export async function atualizarVinculoFuncionario(
   token: string,
   id: number,
   perfil: FuncionarioPerfil | null,
   email: string,
+  funcao: string | null,
 ): Promise<FuncionarioCondominioResponse> {
   const res = await fetch(`${API_URL}/api/funcionarios-condominios/${id}`, {
     method: "PATCH",
     headers: authHeaders(token),
-    body: JSON.stringify({ perfil, email }),
+    body: JSON.stringify({ perfil, email, funcao }),
   });
   return parseOrThrow<FuncionarioCondominioResponse>(res);
 }
@@ -1307,6 +1313,8 @@ export type CandidatoAcessoResponse = {
   nome: string;
   tipoPessoa: "morador" | "funcionario";
   unidade: string | null;
+  perfil: FuncionarioPerfil | null;
+  funcao: string | null;
 };
 
 export async function listarCandidatosAcesso(token: string, demandaId: number): Promise<CandidatoAcessoResponse[]> {
@@ -1344,12 +1352,16 @@ export async function revogarAcessoSigiloso(token: string, demandaId: number, ac
 /** Funcionários atribuídos como responsáveis por uma demanda - pode ter mais de um.
  * Mesmo espírito do "Gerenciar acesso" sigiloso (acima), só que sem restrição de perfil:
  * qualquer funcionário do condomínio pode atribuir/remover. */
+/** `perfil`/`funcao` vêm do vínculo do funcionário com o condomínio da demanda (pedido
+ * do Romulo: mostrar ao lado do nome - cargo pra quem tem login, função pra quem não tem). */
 export type DemandaResponsavelResponse = {
   id: number;
   demandaId: number;
   funcionarioId: number;
   nome: string;
   cpf: string;
+  perfil: FuncionarioPerfil | null;
+  funcao: string | null;
 };
 
 export async function listarResponsaveis(token: string, demandaId: number): Promise<DemandaResponsavelResponse[]> {
@@ -1362,6 +1374,8 @@ export async function listarResponsaveis(token: string, demandaId: number): Prom
 export type CandidatoResponsavelResponse = {
   cpf: string;
   nome: string;
+  perfil: FuncionarioPerfil | null;
+  funcao: string | null;
 };
 
 export async function listarCandidatosResponsavel(
