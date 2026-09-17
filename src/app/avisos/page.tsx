@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AvisoResponse, listarAvisosVisiveis } from "@/lib/api";
 import { useSessaoObrigatoria } from "@/lib/use-sessao-obrigatoria";
 import { AppShell } from "@/components/app-shell";
+import { IconeFixado } from "@/components/icons";
 import { Markdown } from "@/components/markdown";
 import { Input } from "@/components/ui";
 
@@ -91,8 +92,15 @@ export default function AvisosPage() {
             {avisosFiltrados.map((a) => {
               const { titulo, resto } = primeiraLinha(a.descricao);
               return (
-                <div key={a.id} className="p-5">
-                  <Markdown texto={titulo} className="text-base font-bold text-slate-900" />
+                <div key={a.id} className={a.fixadoNoTopo ? "bg-amber-50 p-5" : "p-5"}>
+                  <div className="flex items-start gap-2">
+                    {a.fixadoNoTopo && (
+                      <span title="Fixado no topo">
+                        <IconeFixado className="mt-1 h-4 w-4 shrink-0 text-amber-500" />
+                      </span>
+                    )}
+                    <Markdown texto={titulo} className="text-base font-bold text-slate-900" />
+                  </div>
                   {resto.trim() !== "" && <Markdown texto={resto} className="mt-1 text-sm text-slate-900" />}
                   <p className="mt-2 text-xs italic text-slate-400">
                     Publicado por {a.funcionarioNome} em {formatarDataHora(a.createdAt)}

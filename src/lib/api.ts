@@ -704,6 +704,9 @@ export async function atualizarBloco(token: string, id: number, request: BlocoUp
   return parseOrThrow<BlocoResponse>(res);
 }
 
+/** `fixadoNoTopo` (pedido do Romulo): reservado pra 1 aviso de "informações úteis" (ex:
+ * telefones da administração) que deve sempre aparecer primeiro - o backend já devolve a
+ * lista ordenada com ele na frente, só 1 por condomínio ao mesmo tempo. */
 export type AvisoResponse = {
   id: number;
   condominioId: number;
@@ -712,12 +715,19 @@ export type AvisoResponse = {
   descricao: string;
   situacao: Situacao;
   dataExpiracao: string | null;
+  fixadoNoTopo: boolean;
   createdAt: string;
   updatedAt: string;
 };
 
 export type AvisoCreateRequest = {
   condominioId: number;
+  descricao: string;
+  dataExpiracao?: string | null;
+};
+
+/** Só descrição/expiração - autor e condomínio não mudam por essa tela. */
+export type AvisoUpdateRequest = {
   descricao: string;
   dataExpiracao?: string | null;
 };
@@ -747,8 +757,35 @@ export async function criarAviso(token: string, request: AvisoCreateRequest): Pr
   return parseOrThrow<AvisoResponse>(res);
 }
 
+export async function atualizarAviso(token: string, id: number, request: AvisoUpdateRequest): Promise<AvisoResponse> {
+  const res = await fetch(`${API_URL}/api/avisos/${id}`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify(request),
+  });
+  return parseOrThrow<AvisoResponse>(res);
+}
+
 export async function desativarAviso(token: string, id: number): Promise<AvisoResponse> {
   const res = await fetch(`${API_URL}/api/avisos/${id}/desativar`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+  });
+  return parseOrThrow<AvisoResponse>(res);
+}
+
+/** Desfixa automaticamente qualquer outro aviso do mesmo condomínio que já estivesse
+ * fixado - só 1 por vez (pedido do Romulo). */
+export async function fixarAvisoNoTopo(token: string, id: number): Promise<AvisoResponse> {
+  const res = await fetch(`${API_URL}/api/avisos/${id}/fixar-no-topo`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+  });
+  return parseOrThrow<AvisoResponse>(res);
+}
+
+export async function desfixarAvisoNoTopo(token: string, id: number): Promise<AvisoResponse> {
+  const res = await fetch(`${API_URL}/api/avisos/${id}/desfixar-no-topo`, {
     method: "PATCH",
     headers: authHeaders(token),
   });

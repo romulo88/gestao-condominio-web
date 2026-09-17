@@ -527,3 +527,22 @@ export function IconeMensagemPrivada({ className }: IconeProps) {
     </svg>
   );
 }
+
+/** Pino de mapa - pedido do Romulo: destacar o aviso "fixado no topo" (ex: telefones da
+ * administração) no quadro de avisos. */
+export function IconeFixado({ className }: IconeProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M12 21s7-7.5 7-12a7 7 0 1 0-14 0c0 4.5 7 12 7 12z" />
+      <circle cx="12" cy="9" r="2.5" />
+    </svg>
+  );
+}

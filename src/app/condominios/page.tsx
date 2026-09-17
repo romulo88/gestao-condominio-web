@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ativarVinculoFuncionario,
   ativarVinculoMorador,
+  atualizarAviso,
   atualizarBloco,
   atualizarCondominio,
   atualizarEtiqueta,
@@ -33,9 +34,11 @@ import {
   desativarCondominio,
   desativarVinculoFuncionario,
   desativarVinculoMorador,
+  desfixarAvisoNoTopo,
   EtiquetaResponse,
   excluirMensagemRapida,
   excluirStatusKanban,
+  fixarAvisoNoTopo,
   FuncionarioCondominioResumoResponse,
   FuncionarioPerfil,
   gerarLinkPublicoKanban,
@@ -69,7 +72,7 @@ import { MarkdownEditor } from "@/components/markdown-editor";
 import { UploadGifCondominio } from "@/components/upload-gif-condominio";
 import { Button, Input } from "@/components/ui";
 import { UploadFotoPerfil } from "@/components/upload-foto-perfil";
-import { IconeArrastar, IconeChave, IconeLapis, IconeLink, IconeLixeira } from "@/components/icons";
+import { IconeArrastar, IconeChave, IconeFixado, IconeLapis, IconeLink, IconeLixeira } from "@/components/icons";
 
 const TIPO_LABEL: Record<CondominioTipo, string> = {
   apartamento: "Apartamento",
@@ -212,6 +215,9 @@ export default function CondominiosPage() {
   const [novaDescricaoAviso, setNovaDescricaoAviso] = useState("");
   const [novaDataExpiracaoAviso, setNovaDataExpiracaoAviso] = useState("");
   const [salvandoAviso, setSalvandoAviso] = useState(false);
+  // Edição reaproveita o mesmo formulário (mesmo padrão de `abrirEdicaoFuncionario`) -
+  // `avisoEditandoId` não nulo = formulário em modo "Editar aviso" em vez de "Novo aviso".
+  const [avisoEditandoId, setAvisoEditandoId] = useState<number | null>(null);
 
   const [colunasKanban, setColunasKanban] = useState<StatusKanbanResponse[] | null>(null);
   const [erroKanban, setErroKanban] = useState<string | null>(null);
@@ -981,25 +987,52 @@ export default function CondominiosPage() {
     }
   }
 
-  async function handleCriarAviso(e: React.FormEvent) {
+  async function handleSalvarAviso(e: React.FormEvent) {
     e.preventDefault();
     if (!sessao || !condominioIdAtual) return;
     setErroAvisos(null);
     setSalvandoAviso(true);
     try {
-      const novo = await criarAviso(sessao.token, {
-        condominioId: condominioIdAtual,
-        descricao: novaDescricaoAviso,
-        dataExpiracao: novaDataExpiracaoAviso ? `${novaDataExpiracaoAviso}T00:00:00` : null,
-      });
-      setAvisos((atual) => [novo, ...(atual ?? [])]);
-      setNovaDescricaoAviso("");
-      setNovaDataExpiracaoAviso("");
+      const dataExpiracao = novaDataExpiracaoAviso ? `${novaDataExpiracaoAviso}T00:00:00` : null;
+      if (avisoEditandoId !== null) {
+        const atualizado = await atualizarAviso(sessao.token, avisoEditandoId, {
+          descricao: novaDescricaoAviso,
+          dataExpiracao,
+        });
+        setAvisos((atual) => (atual ? ordenarAvisos(atual.map((a) => (a.id === avisoEditandoId ? atualizado : a))) : null));
+        cancelarEdicaoAviso();
+      } else {
+        const novo = await criarAviso(sessao.token, {
+          condominioId: condominioIdAtual,
+          descricao: novaDescricaoAviso,
+          dataExpiracao,
+        });
+        setAvisos((atual) => ordenarAvisos([novo, ...(atual ?? [])]));
+        setNovaDescricaoAviso("");
+        setNovaDataExpiracaoAviso("");
+      }
     } catch (err) {
-      setErroAvisos(err instanceof Error ? err.message : "Falha ao criar aviso.");
+      setErroAvisos(err instanceof Error ? err.message : "Falha ao salvar aviso.");
     } finally {
       setSalvandoAviso(false);
     }
+  }
+
+  /** Preenche o mesmo formulário "Novo aviso" com o registro escolhido, em vez de um
+   * formulário separado - mesmo padrão de `abrirEdicaoFuncionario`. Autor/condomínio não
+   * ficam editáveis (não aparecem no formulário pra começar). */
+  function abrirEdicaoAviso(a: AvisoResponse) {
+    setAvisoEditandoId(a.id);
+    setNovaDescricaoAviso(a.descricao);
+    setNovaDataExpiracaoAviso(a.dataExpiracao ? a.dataExpiracao.slice(0, 10) : "");
+    setErroAvisos(null);
+  }
+
+  function cancelarEdicaoAviso() {
+    setAvisoEditandoId(null);
+    setNovaDescricaoAviso("");
+    setNovaDataExpiracaoAviso("");
+    setErroAvisos(null);
   }
 
   async function handleDesativarAviso(id: number) {
@@ -1010,6 +1043,42 @@ export default function CondominiosPage() {
       setAvisos((atual) => atual?.map((a) => (a.id === id ? atualizado : a)) ?? null);
     } catch (err) {
       setErroAvisos(err instanceof Error ? err.message : "Falha ao desativar.");
+    }
+  }
+
+  /** Fixado no topo primeiro, dentro disso mais recente primeiro - mesmo critério do
+   * backend (`AvisoRepository.findByCondominioIdOrderByFixadoNoTopoDescCreatedAtDesc`),
+   * pra reordenar a lista local sem precisar recarregar a página inteira. */
+  function ordenarAvisos(lista: AvisoResponse[]): AvisoResponse[] {
+    return [...lista].sort((a, b) => {
+      if (a.fixadoNoTopo !== b.fixadoNoTopo) return a.fixadoNoTopo ? -1 : 1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }
+
+  /** Só 1 fixado por condomínio (pedido do Romulo) - o backend já desfixa o anterior
+   * sozinho, aqui só espelha isso no estado local pra não precisar recarregar a página. */
+  async function handleFixarAviso(id: number) {
+    if (!sessao) return;
+    setErroAvisos(null);
+    try {
+      const atualizado = await fixarAvisoNoTopo(sessao.token, id);
+      setAvisos((atual) =>
+        atual ? ordenarAvisos(atual.map((a) => (a.id === id ? atualizado : { ...a, fixadoNoTopo: false }))) : null,
+      );
+    } catch (err) {
+      setErroAvisos(err instanceof Error ? err.message : "Falha ao fixar no topo.");
+    }
+  }
+
+  async function handleDesfixarAviso(id: number) {
+    if (!sessao) return;
+    setErroAvisos(null);
+    try {
+      const atualizado = await desfixarAvisoNoTopo(sessao.token, id);
+      setAvisos((atual) => (atual ? ordenarAvisos(atual.map((a) => (a.id === id ? atualizado : a))) : null));
+    } catch (err) {
+      setErroAvisos(err instanceof Error ? err.message : "Falha ao desfixar.");
     }
   }
 
@@ -2177,8 +2246,10 @@ export default function CondominiosPage() {
           {aba === "avisos" && condominioIdAtual && (
             <div className="space-y-4 p-5">
               {podeRedigirAviso ? (
-                <form onSubmit={handleCriarAviso} className="space-y-3">
-                  <p className="text-sm font-medium text-slate-700">Novo aviso</p>
+                <form onSubmit={handleSalvarAviso} className="space-y-3">
+                  <p className="text-sm font-medium text-slate-700">
+                    {avisoEditandoId !== null ? "Editar aviso" : "Novo aviso"}
+                  </p>
                   <MarkdownEditor
                     required
                     maxLength={250}
@@ -2195,9 +2266,20 @@ export default function CondominiosPage() {
                       onChange={(e) => setNovaDataExpiracaoAviso(e.target.value)}
                     />
                   </div>
-                  <div className="flex justify-end pt-1">
+                  <div className="flex justify-end gap-2 pt-1">
+                    {avisoEditandoId !== null && (
+                      <Button type="button" variant="secondary" onClick={cancelarEdicaoAviso} disabled={salvandoAviso}>
+                        Cancelar
+                      </Button>
+                    )}
                     <Button type="submit" disabled={salvandoAviso}>
-                      {salvandoAviso ? "Publicando..." : "Publicar"}
+                      {avisoEditandoId !== null
+                        ? salvandoAviso
+                          ? "Salvando..."
+                          : "Salvar"
+                        : salvandoAviso
+                          ? "Publicando..."
+                          : "Publicar"}
                     </Button>
                   </div>
                 </form>
@@ -2220,9 +2302,16 @@ export default function CondominiosPage() {
                     </div>
                     <div className="divide-y divide-slate-100">
                       {avisos.map((a) => (
-                        <div key={a.id} className="p-4">
+                        <div key={a.id} className={a.fixadoNoTopo ? "bg-amber-50 p-4" : "p-4"}>
                           <div className="flex items-start justify-between gap-3">
-                            <Markdown texto={a.descricao} className="text-sm text-slate-900" />
+                            <div className="flex items-start gap-2">
+                              {a.fixadoNoTopo && (
+                                <span title="Fixado no topo">
+                                  <IconeFixado className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                                </span>
+                              )}
+                              <Markdown texto={a.descricao} className="text-sm text-slate-900" />
+                            </div>
                             <span
                               className={
                                 a.situacao === "ativo"
@@ -2238,12 +2327,29 @@ export default function CondominiosPage() {
                             {a.dataExpiracao && <> · válido até {formatarData(a.dataExpiracao)}</>}
                           </p>
                           {a.situacao === "ativo" && (
-                            <button
-                              onClick={() => handleDesativarAviso(a.id)}
-                              className="mt-2 text-xs text-slate-400 hover:text-red-600"
-                            >
-                              Desativar
-                            </button>
+                            <div className="mt-2 flex gap-3">
+                              <button
+                                onClick={() => abrirEdicaoAviso(a)}
+                                disabled={avisoEditandoId !== null}
+                                className="text-xs text-slate-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-30"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                onClick={() => (a.fixadoNoTopo ? handleDesfixarAviso(a.id) : handleFixarAviso(a.id))}
+                                disabled={avisoEditandoId !== null}
+                                className="text-xs text-slate-400 hover:text-amber-600 disabled:cursor-not-allowed disabled:opacity-30"
+                              >
+                                {a.fixadoNoTopo ? "Desfixar do topo" : "Fixar no topo"}
+                              </button>
+                              <button
+                                onClick={() => handleDesativarAviso(a.id)}
+                                disabled={avisoEditandoId !== null}
+                                className="text-xs text-slate-400 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30"
+                              >
+                                Desativar
+                              </button>
+                            </div>
                           )}
                         </div>
                       ))}
