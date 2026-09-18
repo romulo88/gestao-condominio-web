@@ -71,6 +71,7 @@ import {
   IconeAjuda,
   IconeArquivadas,
   IconeChecklist,
+  IconeCopiar,
   IconeFuncionarioOcioso,
   IconeNotaLida,
   IconeNotaPendente,
@@ -314,6 +315,9 @@ function KanbanPageInner() {
   // Funcionalidade "Acompanhar" (pedido do Romulo): morador marca check numa demanda que
   // não é dele - ver `handleAlternarAcompanhar`.
   const [erroAcompanhar, setErroAcompanhar] = useState<string | null>(null);
+  // Copiar "#N - Título" (pedido do Romulo: facilitar colar em outro lugar, tipo lembrete
+  // ou mensagem pra alguém) - mesmo padrão de `linkPublicoCopiado` em `condominios/page.tsx`.
+  const [tituloCopiado, setTituloCopiado] = useState(false);
 
   const [acessosPorDemanda, setAcessosPorDemanda] = useState<Record<number, DemandaAcessoSigilosoResponse[]>>({});
   const [candidatosAcessoPorDemanda, setCandidatosAcessoPorDemanda] = useState<
@@ -621,6 +625,20 @@ function KanbanPageInner() {
 
   function fecharModalDetalhe() {
     setModalDetalheId(null);
+  }
+
+  /** Copia "#N - Título" pra área de transferência (pedido do Romulo: facilitar passar pra
+   * alguém, ou colar num lembrete pra alguma ação futura em cima da demanda) - mesmo
+   * padrão de `handleCopiarLinkPublico` em `condominios/page.tsx`. */
+  async function handleCopiarTitulo() {
+    if (!demandaDetalhe) return;
+    try {
+      await navigator.clipboard.writeText(`#${demandaDetalhe.id} - ${demandaDetalhe.titulo}`);
+      setTituloCopiado(true);
+      setTimeout(() => setTituloCopiado(false), 2000);
+    } catch {
+      // Silencioso - é só um atalho de conveniência, não vale mostrar erro pra isso.
+    }
   }
 
   /** Busca uma vez só - hover no ícone de relógio e clique nele (abre o modal de
@@ -1868,6 +1886,14 @@ function KanbanPageInner() {
                   #{demandaDetalhe.id}
                 </span>
                 {demandaDetalhe.titulo}
+                <button
+                  type="button"
+                  onClick={handleCopiarTitulo}
+                  title={tituloCopiado ? "Copiado!" : "Copiar \"#N - Título\""}
+                  className={`ml-1.5 shrink-0 ${tituloCopiado ? "text-emerald-600" : "text-slate-400 hover:text-slate-600"}`}
+                >
+                  <IconeCopiar className="h-3.5 w-3.5" />
+                </button>
                 {/* Pedido do Romulo: campo "sigilosa" saiu de aqui do título e foi pro
                     bloco logo acima de "Atribuir responsável" (mesmo lugar de /demandas) -
                     aqui só sobra o selo de leitura, igual pra todo mundo. */}

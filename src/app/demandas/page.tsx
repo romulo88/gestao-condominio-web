@@ -54,6 +54,7 @@ import { ComboPessoa } from "@/components/combo-pessoa";
 import {
   IconeChecklist,
   IconeColunas,
+  IconeCopiar,
   IconeNotaLida,
   IconeNotaPendente,
   IconePlay,
@@ -166,6 +167,20 @@ function DemandasPageInner() {
       }
       return novo;
     });
+  }
+
+  // Copiar "#N - Título" (pedido do Romulo, mesmo ícone/comportamento do modal de detalhe
+  // do Kanban) - guarda o id pra saber qual linha mostra "Copiado!" (a lista tem várias
+  // demandas na tela ao mesmo tempo, diferente do Kanban que só tem 1 modal aberto).
+  const [tituloCopiadoId, setTituloCopiadoId] = useState<number | null>(null);
+  async function handleCopiarTitulo(d: DemandaResponse) {
+    try {
+      await navigator.clipboard.writeText(`#${d.id} - ${d.titulo}`);
+      setTituloCopiadoId(d.id);
+      setTimeout(() => setTituloCopiadoId(null), 2000);
+    } catch {
+      // Silencioso - é só um atalho de conveniência, não vale mostrar erro pra isso.
+    }
   }
 
   // Filtros da listagem - viraram server-side (ver `listarPaginaDemandas`) desde que a
@@ -1236,11 +1251,21 @@ function DemandasPageInner() {
               <div key={d.id} className="p-4">
                 {/* Colapsada por padrão (pedido do Romulo): só título e status ficam
                     sempre visíveis - o resto (descrição, ações, etapas/imagens/notas)
-                    só renderiza (e só busca da API) quando a linha é expandida. */}
-                <button
-                  type="button"
+                    só renderiza (e só busca da API) quando a linha é expandida.
+                    Virou `div` (não `button`) porque agora tem o botão de copiar título
+                    lá dentro - botão dentro de botão é HTML inválido; `role="button"` +
+                    `onKeyDown` mantêm a mesma acessibilidade de antes. */}
+                <div
+                  role="button"
+                  tabIndex={0}
                   onClick={() => alternarExpandido(d.id)}
-                  className="flex w-full items-start justify-between gap-3 text-left"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      alternarExpandido(d.id);
+                    }
+                  }}
+                  className="flex w-full cursor-pointer items-start justify-between gap-3 text-left"
                 >
                   <p
                     className={`flex items-center text-sm font-medium ${
@@ -1255,6 +1280,19 @@ function DemandasPageInner() {
                       #{d.id}
                     </span>
                     {d.titulo}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCopiarTitulo(d);
+                      }}
+                      title={tituloCopiadoId === d.id ? "Copiado!" : 'Copiar "#N - Título"'}
+                      className={`ml-1.5 shrink-0 ${
+                        tituloCopiadoId === d.id ? "text-emerald-600" : "text-slate-400 hover:text-slate-600"
+                      }`}
+                    >
+                      <IconeCopiar className="h-3.5 w-3.5" />
+                    </button>
                     {d.sigilosa && <span className="ml-1.5 text-xs font-normal text-slate-400">(sigilosa)</span>}
                   </p>
                   <span className="flex shrink-0 items-center gap-2">
@@ -1263,7 +1301,7 @@ function DemandasPageInner() {
                     </span>
                     <span className={`text-slate-400 transition-transform ${expandida ? "rotate-180" : ""}`}>▾</span>
                   </span>
-                </button>
+                </div>
 
                 {expandida && (
                   <>

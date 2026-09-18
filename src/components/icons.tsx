@@ -546,3 +546,22 @@ export function IconeFixado({ className }: IconeProps) {
     </svg>
   );
 }
+
+/** Copiar (dois retângulos sobrepostos) - pedido do Romulo: copiar "#N - Título" de uma
+ * demanda no modal de detalhe do Kanban, pra colar em outro lugar (lembrete, mensagem). */
+export function IconeCopiar({ className }: IconeProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <rect x="9" y="9" width="11" height="11" rx="1.5" />
+      <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
