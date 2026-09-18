@@ -29,6 +29,7 @@ import {
   DemandaStatusKanbanHistoricoResponse,
   desvincularEtiqueta,
   EtiquetaResponse,
+  FuncionarioPerfil,
   FuncionarioResponse,
   listarAcessoSigiloso,
   listarCandidatosAcesso,
@@ -118,16 +119,21 @@ function formatarDataHora(iso: string): string {
   });
 }
 
+/** `FuncionarioResponse` (nome/foto/situação) não sabe o perfil - isso mora no vínculo com
+ * o condomínio, não na pessoa. Combina os dois pra mostrar cargo/função ao lado do nome na
+ * lista de ociosos (pedido do Romulo), mesmo fallback perfil→função das outras listas. */
+type FuncionarioComPerfil = FuncionarioResponse & { perfil: FuncionarioPerfil | null; funcao: string | null };
+
 /** Roster de funcionários ATIVOS do condomínio - mesmo padrão de `condominios/page.tsx`
  * (vínculos ativos + `buscarFuncionario` por id, em paralelo). Usado pro ícone/popup de
  * "sem demanda atribuída" (pedido do Romulo) - buscado assim que o quadro carrega, não só
  * quando o popup abre, porque o ícone precisa saber se fica vermelho antes do clique. */
-async function buscarRosterFuncionarios(token: string, condominioId: number): Promise<FuncionarioResponse[]> {
-  const vinculos = await listarVinculosPorCondominio(token, condominioId);
-  const lista = await Promise.all(
-    vinculos.filter((v) => v.situacao === "ativo").map((v) => buscarFuncionario(token, v.funcionarioId)),
-  );
-  return lista.filter((f) => f.situacao === "ativo");
+async function buscarRosterFuncionarios(token: string, condominioId: number): Promise<FuncionarioComPerfil[]> {
+  const vinculos = (await listarVinculosPorCondominio(token, condominioId)).filter((v) => v.situacao === "ativo");
+  const funcionarios = await Promise.all(vinculos.map((v) => buscarFuncionario(token, v.funcionarioId)));
+  return funcionarios
+    .map((f, i) => ({ ...f, perfil: vinculos[i].perfil, funcao: vinculos[i].funcao }))
+    .filter((f) => f.situacao === "ativo");
 }
 
 /** A última linha do histórico (mais recente) é a transição pra coluna atual - "há
@@ -289,7 +295,7 @@ function KanbanPageInner() {
   // "+ Nova demanda", que foi pro lado esquerdo) - `funcionariosCondominio` é cacheado na
   // primeira abertura (mesmo padrão dos outros modais menores).
   const [ociososAberto, setOciososAberto] = useState(false);
-  const [funcionariosCondominio, setFuncionariosCondominio] = useState<FuncionarioResponse[] | null>(null);
+  const [funcionariosCondominio, setFuncionariosCondominio] = useState<FuncionarioComPerfil[] | null>(null);
   const [erroOciosos, setErroOciosos] = useState<string | null>(null);
 
   // Popup de demandas arquivadas (pedido do Romulo, ícone ao lado do de ociosidade) - sem
@@ -1594,6 +1600,11 @@ function KanbanPageInner() {
                         )}
                       </div>
                       {f.nome}
+                      {(f.perfil || f.funcao) && (
+                        <span className="text-xs text-slate-400">
+                          ({f.perfil ? PERFIL_LABEL[f.perfil] : f.funcao})
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
