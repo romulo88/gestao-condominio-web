@@ -4,7 +4,10 @@
 // funciona igual em localhost, IP da rede local ou domínio de tunel (ngrok), sem precisar
 // rebuildar a imagem a cada teste. Ainda dá pra sobrescrever via NEXT_PUBLIC_API_URL se um
 // dia precisar apontar o navegador direto pro backend (ex.: backend com domínio próprio).
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+import { BASE_PATH } from "./base-path";
+
+// Com `basePath`, o proxy /api/* também passa a existir sob o prefixo (ex.: /commander/api/*).
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? BASE_PATH;
 
 /** Monta a URL final de uma imagem servida pelo backend (`DemandaDocumentoResponse.url`,
  * `fotoUrl`, `gifUrl` - agora um caminho relativo tipo `/api/.../arquivo`, não mais link
@@ -290,7 +293,7 @@ export async function revogarLinkPublicoKanban(token: string, id: number): Promi
  * quanto pra copiar (`navigator.clipboard`). `window.location.origin` porque o backend
  * não sabe (nem precisa saber) em que origem o frontend está servido. */
 export function urlKanbanPublico(token: string): string {
-  return `${window.location.origin}/kanban-publico/${token}`;
+  return `${window.location.origin}${BASE_PATH}/kanban-publico/${token}`;
 }
 
 /** Card do quadro Kanban público - bem mais enxuto que `DemandaResponse` de propósito

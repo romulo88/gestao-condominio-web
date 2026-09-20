@@ -15,6 +15,9 @@ import type { NextConfig } from "next";
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://host.docker.internal:8080";
 
 const nextConfig: NextConfig = {
+  // Subcaminho onde o app é servido em produção (ex.: "/commander") - também é decisão de
+  // BUILD (vira build-arg no Dockerfile/workflow), igual ao BACKEND_URL. Vazio em dev local.
+  basePath: process.env.NEXT_PUBLIC_BASE_PATH || undefined,
   // Build de produção enxuta pro Dockerfile (copia só o necessário pra rodar, sem o
   // node_modules inteiro) - usado pelo serviço `frontend` do docker-compose.yml.
   output: "standalone",

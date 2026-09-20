@@ -9,7 +9,9 @@ import { CasaIconElement } from "@/lib/pwa-icon";
  * no header porque o desenho nunca muda pra um tamanho já gerado. */
 export async function GET(_req: Request, { params }: { params: Promise<{ size: string }> }) {
   const { size: sizeParam } = await params;
-  const size = Number(sizeParam) === 192 ? 192 : 512;
+  // 180 = apple-touch-icon (Safari/iOS) - declarado em `layout.tsx` com o prefixo do app.
+  const pedido = Number(sizeParam);
+  const size = pedido === 180 || pedido === 192 ? pedido : 512;
 
   return new ImageResponse(<CasaIconElement size={size} />, {
     width: size,

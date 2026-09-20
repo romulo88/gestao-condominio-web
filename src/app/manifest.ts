@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { BASE_PATH } from "@/lib/base-path";
 
 /** PWA (pedido do Romulo, v119): instalável no celular, focado em abrir e acompanhar
  * demandas - `start_url` cai direto em `/demandas` (que já reúne "+ Nova demanda" e a
@@ -10,20 +11,20 @@ import type { MetadataRoute } from "next";
  * sem sair pro navegador comum. Ícones gerados em `pwa-icon/[size]/route.tsx`. */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    id: "/demandas",
+    id: `${BASE_PATH}/demandas`,
     name: "Commander",
     short_name: "Commander",
     description: "Abra e acompanhe as demandas do seu condomínio.",
-    start_url: "/demandas",
-    scope: "/",
+    start_url: `${BASE_PATH}/demandas`,
+    scope: `${BASE_PATH}/`,
     display: "standalone",
     background_color: "#0f172a",
     theme_color: "#0f172a",
     icons: [
-      { src: "/pwa-icon/192", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/pwa-icon/512", sizes: "512x512", type: "image/png", purpose: "any" },
-      { src: "/pwa-icon/192", sizes: "192x192", type: "image/png", purpose: "maskable" },
-      { src: "/pwa-icon/512", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      { src: `${BASE_PATH}/pwa-icon/192`, sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: `${BASE_PATH}/pwa-icon/512`, sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: `${BASE_PATH}/pwa-icon/192`, sizes: "192x192", type: "image/png", purpose: "maskable" },
+      { src: `${BASE_PATH}/pwa-icon/512`, sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
   };
 }

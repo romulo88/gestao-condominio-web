@@ -47,6 +47,7 @@ jobs:
           # imagem - nao adianta definir no compose. Ver o comentario no Dockerfile.
           build-args: |
             BACKEND_URL=http://backend:8080
+            NEXT_PUBLIC_BASE_PATH=/commander
           tags: |
             ${{ env.IMAGEM }}:latest
             ${{ env.IMAGEM }}:${{ github.sha }}
@@ -130,7 +131,7 @@ jobs:
       - name: Conferir o site publico
         run: |
           for i in $(seq 1 30); do
-            codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://romtechsolucoes.com.br/login || true)
+            codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://romtechsolucoes.com.br/commander/login || true)
             echo "tentativa $i: HTTP $codigo"
             if [ "$codigo" = "200" ]; then echo "Site no ar."; exit 0; fi
             sleep 10
