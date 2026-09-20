@@ -1473,7 +1473,7 @@ function DemandasPageInner() {
                           }`}
                         >
                           <IconeColunas className="h-3.5 w-3.5" />
-                          Aprovar e enviar para Visão
+                          Aprovar para Visão
                         </button>
                         <span className="text-slate-300">|</span>
                         <button
@@ -1573,7 +1573,7 @@ function DemandasPageInner() {
                     prioridade sobre a combo quando preenchido. */}
                 {podeVerEtapas && decisaoAberta === d.id && decisaoModo === "imediato" && (
                   <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs font-medium text-slate-600">Aprovar de imediato (sem Kanban)</p>
+                    <p className="text-xs font-medium text-slate-600">Aprovar de imediato (sem o quadro Visão)</p>
                     <select
                       value={comboAprovacaoId}
                       onChange={(e) => setComboAprovacaoId(e.target.value)}
@@ -1607,7 +1607,7 @@ function DemandasPageInner() {
                 {/* "Aprovar com Kanban": formulário de sempre, sem a parte de recusar ao lado. */}
                 {podeVerEtapas && decisaoAberta === d.id && decisaoModo === "kanban" && (
                   <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs font-medium text-slate-600">Aprovar e enviar para Visão</p>
+                    <p className="text-xs font-medium text-slate-600">Aprovar para Visão</p>
                     <div className="flex gap-2">
                       <select
                         value={colunaEscolhida}
@@ -1629,7 +1629,7 @@ function DemandasPageInner() {
                         disabled={salvandoDecisao || (colunasKanban ?? []).length === 0}
                         onClick={() => handleAprovarComKanban(d.id)}
                       >
-                        Aprovar para Visão
+                        Aprovar
                       </Button>
                     </div>
                     {erroDecisao && <p className="text-sm text-red-600">{erroDecisao}</p>}
