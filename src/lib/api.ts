@@ -882,6 +882,9 @@ export type StatusKanbanResponse = {
   visivelExternamente: boolean;
   /** true = situação terminal do fluxo - demanda nessa coluna pode ser arquivada no card. */
   finalistico: boolean;
+  /** true = coluna de demandas recorrentes/diárias (ex: limpeza, portaria, ronda) - cards
+   * ficam ali indefinidamente e não contam no futuro dashboard de tempo parado. */
+  recorrente: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -894,6 +897,8 @@ export type StatusKanbanCreateRequest = {
   visivelExternamente?: boolean;
   /** Omitido vira false no backend (default). */
   finalistico?: boolean;
+  /** Omitido vira false no backend (default). */
+  recorrente?: boolean;
 };
 
 export type StatusKanbanUpdateRequest = {
@@ -903,6 +908,8 @@ export type StatusKanbanUpdateRequest = {
   visivelExternamente?: boolean;
   /** Omitido não mexe no valor atual. */
   finalistico?: boolean;
+  /** Omitido não mexe no valor atual. */
+  recorrente?: boolean;
 };
 
 export async function listarStatusKanban(token: string, condominioId: number): Promise<StatusKanbanResponse[]> {
@@ -1163,6 +1170,11 @@ export type DemandaResponse = {
   podeAcompanhar: boolean;
   /** true quando o morador logado marcou "Acompanhar" nessa demanda - reflete o check. */
   acompanhando: boolean;
+  /** Desde quando a demanda está na coluna ATUAL dela (a transição mais recente do
+   * histórico) - alimenta o KPI de "dias parado" do Kanban. Null enquanto não tem coluna
+   * (statusKanbanId também null) ou nos endpoints que não calculam isso em lote (ex:
+   * `/demandas/pagina`). */
+  statusKanbanDesde: string | null;
   createdAt: string;
   updatedAt: string;
 };

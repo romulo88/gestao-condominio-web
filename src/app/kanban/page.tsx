@@ -137,14 +137,17 @@ async function buscarRosterFuncionarios(token: string, condominioId: number): Pr
     .filter((f) => f.situacao === "ativo");
 }
 
+function diasDesde(dataIso: string): number {
+  const ms = Date.now() - new Date(dataIso).getTime();
+  return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)));
+}
+
 /** A última linha do histórico (mais recente) é a transição pra coluna atual - "há
  * quantos dias" é sempre em cima dela, nunca da criação da demanda (que pode ter sido
  * bem antes de entrar nessa coluna específica). */
 function diasNaColunaAtual(historico: DemandaStatusKanbanHistoricoResponse[]): number {
   const ultima = historico[historico.length - 1];
-  if (!ultima) return 0;
-  const ms = Date.now() - new Date(ultima.createdAt).getTime();
-  return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)));
+  return ultima ? diasDesde(ultima.createdAt) : 0;
 }
 
 function formatarDiasNaColuna(dias: number): string {
@@ -268,6 +271,11 @@ function KanbanPageInner() {
   // as `visivelMorador` em `etiquetasDisponiveis`, então nem precisa filtrar aqui de novo).
   // null = sem filtro, mostra tudo.
   const [filtroEtiquetaId, setFiltroEtiquetaId] = useState<number | null>(null);
+
+  // KPI de "dias parado" (pedido do Romulo) - clicar num dos números filtra o quadro pras
+  // demandas com pelo menos esse tanto de dias na coluna atual, mesmo espírito do filtro de
+  // etiqueta acima. Clicar de novo no mesmo número limpa. null = sem filtro.
+  const [filtroDiasParadoMin, setFiltroDiasParadoMin] = useState<number | null>(null);
 
   const [colunaSobreId, setColunaSobreId] = useState<number | null>(null);
   const [movendoId, setMovendoId] = useState<number | null>(null);
@@ -1218,6 +1226,25 @@ function KanbanPageInner() {
 
   const demandasArquivadas = (demandas ?? []).filter((d) => d.arquivada);
 
+  // KPI de "dias parado" (pedido do Romulo) - raia finalística/recorrente não conta (o
+  // card fica ali de propósito, indefinidamente - ver `StatusKanban.finalistico`/
+  // `.recorrente`). "Parado" é sempre em cima de `statusKanbanDesde` (a entrada na coluna
+  // ATUAL), nunca da criação da demanda - mesmo critério de `diasNaColunaAtual`.
+  const idsColunaContaTempoParado = new Set(
+    (colunas ?? []).filter((c) => !c.finalistico && !c.recorrente).map((c) => c.id),
+  );
+  const kpisDiasParado = [5, 10, 15, 30].map((min) => ({
+    min,
+    total: (demandas ?? []).filter(
+      (d) =>
+        !d.arquivada &&
+        d.statusKanbanId !== null &&
+        idsColunaContaTempoParado.has(d.statusKanbanId) &&
+        d.statusKanbanDesde !== null &&
+        diasDesde(d.statusKanbanDesde) >= min,
+    ).length,
+  }));
+
   return (
     <AppShell sessao={sessao} wide="full">
       <div className="flex items-center justify-between">
@@ -1295,6 +1322,40 @@ function KanbanPageInner() {
         </div>
       </div>
 
+      {/* KPI de "dias parado" (pedido do Romulo) - clicar num número filtra o quadro só
+          pras demandas naquela faixa (raia finalística/recorrente nunca conta, nem entra
+          no filtro). Clicar de novo no mesmo número limpa. */}
+      {colunas && colunas.length > 0 && demandas && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-slate-500">Parado na coluna há:</span>
+          {kpisDiasParado.map(({ min, total }) => {
+            const ativo = filtroDiasParadoMin === min;
+            return (
+              <button
+                key={min}
+                type="button"
+                onClick={() => setFiltroDiasParadoMin((atual) => (atual === min ? null : min))}
+                title="Demandas nessa faixa, na coluna atual - clique pra filtrar o quadro (raias finalística/recorrente não contam)"
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  ativo ? "bg-purple-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {total} · {min}+ dias
+              </button>
+            );
+          })}
+          {filtroDiasParadoMin !== null && (
+            <button
+              type="button"
+              onClick={() => setFiltroDiasParadoMin(null)}
+              className="text-xs text-slate-400 hover:text-slate-600"
+            >
+              Limpar
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Filtro de etiqueta (pedido do Romulo, pros dois papéis - morador só vê as
           etiquetas marcadas visíveis pra ele, já filtrado pelo backend em
           `etiquetasDisponiveis`). Só aparece quando o condomínio já tem etiqueta
@@ -1342,11 +1403,18 @@ function KanbanPageInner() {
               // Demanda arquivada some do quadro (pedido do Romulo) - continua acessível
               // pelo ícone de pasta no cabeçalho (`demandasArquivadas`, v87). Filtro de
               // etiqueta (pedido do Romulo) - `filtroEtiquetaId === null` = sem filtro.
+              // Filtro de "dias parado" (pedido do Romulo) - raia finalística/recorrente
+              // nunca conta nem aparece filtrada (o KPI já não contou nada dela).
+              const colunaContaTempoParado = !coluna.finalistico && !coluna.recorrente;
               const cards = demandas.filter(
                 (d) =>
                   d.statusKanbanId === coluna.id &&
                   !d.arquivada &&
-                  (filtroEtiquetaId === null || d.etiquetas.some((et) => et.id === filtroEtiquetaId)),
+                  (filtroEtiquetaId === null || d.etiquetas.some((et) => et.id === filtroEtiquetaId)) &&
+                  (filtroDiasParadoMin === null ||
+                    (colunaContaTempoParado &&
+                      d.statusKanbanDesde !== null &&
+                      diasDesde(d.statusKanbanDesde) >= filtroDiasParadoMin)),
               );
               return (
                 <div
@@ -1359,7 +1427,9 @@ function KanbanPageInner() {
                       ? "Essa coluna não aparece pro morador - só funcionário/síndico vê"
                       : coluna.finalistico
                         ? "Situação finalística - representa o fim do fluxo dessa demanda"
-                        : undefined
+                        : coluna.recorrente
+                          ? "Coluna recorrente - demandas diárias que ficam aqui indefinidamente"
+                          : undefined
                   }
                   className={`min-w-[160px] flex-1 rounded-lg border bg-slate-100 transition-colors ${
                     colunaSobreId === coluna.id
@@ -1375,7 +1445,13 @@ function KanbanPageInner() {
                     {/* Título fica sem cor, igual as outras raias (o Romulo voltou atrás
                         nisso - só o contorno da coluna continua verde quando finalística). */}
                     <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{coluna.nome}</p>
-                    <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-xs text-slate-500">
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-xs ${
+                        coluna.recorrente
+                          ? "border-2 border-purple-400 bg-purple-50 text-purple-700"
+                          : "bg-slate-200 text-slate-500"
+                      }`}
+                    >
                       {cards.length}
                     </span>
                   </div>
@@ -1767,6 +1843,13 @@ function KanbanPageInner() {
                     <span className="h-4 w-4 shrink-0 rounded border-2 border-emerald-400 bg-slate-100" />
                     <span className="text-slate-600">
                       Contorno verde - coluna finalística (fim do fluxo, permite arquivar a demanda).
+                    </span>
+                  </li>
+                  <li className="flex items-center gap-2.5">
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-purple-400 bg-purple-50" />
+                    <span className="text-slate-600">
+                      Número roxo - coluna recorrente (demandas diárias, ex: limpeza/portaria/ronda, ficam
+                      ali indefinidamente).
                     </span>
                   </li>
                 </ul>

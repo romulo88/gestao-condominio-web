@@ -227,15 +227,20 @@ export default function CondominiosPage() {
   // Default desmarcado (pedido do Romulo) - coluna finalística = situação terminal do
   // fluxo; demanda nela ganha o botão "Arquivar" no card.
   const [novaColunaFinalistica, setNovaColunaFinalistica] = useState(false);
+  // Default desmarcado (pedido do Romulo) - coluna recorrente = demandas diárias (limpeza,
+  // portaria, ronda) que ficam ali indefinidamente e não contam no futuro dashboard de
+  // tempo parado.
+  const [novaColunaRecorrente, setNovaColunaRecorrente] = useState(false);
   const [salvandoColuna, setSalvandoColuna] = useState(false);
-  // id da coluna sendo editada inline (nome/visibilidade/finalístico) - null quando
-  // nenhuma está em edição. `ordem` saiu daqui (pedido do Romulo: reordenar por drag and
-  // drop, não mais digitando um número - ver `handleDropColuna` mais abaixo).
+  // id da coluna sendo editada inline (nome/visibilidade/finalístico/recorrente) - null
+  // quando nenhuma está em edição. `ordem` saiu daqui (pedido do Romulo: reordenar por
+  // drag and drop, não mais digitando um número - ver `handleDropColuna` mais abaixo).
   const [colunaEditando, setColunaEditando] = useState<number | null>(null);
   const [edicaoColuna, setEdicaoColuna] = useState({
     nome: "",
     visivelExternamente: true,
     finalistico: false,
+    recorrente: false,
   });
   const [salvandoEdicaoColuna, setSalvandoEdicaoColuna] = useState(false);
   const [excluindoColunaId, setExcluindoColunaId] = useState<number | null>(null);
@@ -1095,11 +1100,13 @@ export default function CondominiosPage() {
         ordem: novaOrdem,
         visivelExternamente: novaColunaVisivel,
         finalistico: novaColunaFinalistica,
+        recorrente: novaColunaRecorrente,
       });
       setColunasKanban((atual) => [...(atual ?? []), nova]);
       setNovaColunaNome("");
       setNovaColunaVisivel(true);
       setNovaColunaFinalistica(false);
+      setNovaColunaRecorrente(false);
     } catch (err) {
       setErroKanban(err instanceof Error ? err.message : "Falha ao cadastrar coluna.");
     } finally {
@@ -1113,6 +1120,7 @@ export default function CondominiosPage() {
       nome: c.nome,
       visivelExternamente: c.visivelExternamente,
       finalistico: c.finalistico,
+      recorrente: c.recorrente,
     });
   }
 
@@ -1129,6 +1137,7 @@ export default function CondominiosPage() {
         ordem: colunaAtual.ordem,
         visivelExternamente: edicaoColuna.visivelExternamente,
         finalistico: edicaoColuna.finalistico,
+        recorrente: edicaoColuna.recorrente,
       });
       setColunasKanban((atual) => atual?.map((c) => (c.id === id ? atualizada : c)) ?? null);
       setColunaEditando(null);
@@ -2398,6 +2407,21 @@ export default function CondominiosPage() {
                     />
                     Finalística
                   </label>
+                  {/* Default desmarcado (pedido do Romulo) - coluna recorrente = demandas
+                      diárias (limpeza, portaria, ronda) que ficam ali indefinidamente e não
+                      contam no futuro dashboard de tempo parado. */}
+                  <label
+                    className="flex shrink-0 items-center gap-1.5 pb-3 text-xs text-slate-500"
+                    title="Demandas diárias/recorrentes (ex: limpeza, portaria, ronda) - não contarão no futuro dashboard de tempo parado"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={novaColunaRecorrente}
+                      onChange={(e) => setNovaColunaRecorrente(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300"
+                    />
+                    Recorrente
+                  </label>
                   <Button type="submit" disabled={salvandoColuna}>
                     {salvandoColuna ? "Adicionando..." : "Adicionar"}
                   </Button>
@@ -2473,6 +2497,20 @@ export default function CondominiosPage() {
                                   />
                                   Finalística
                                 </label>
+                                <label
+                                  className="flex shrink-0 items-center gap-1.5 text-xs text-slate-500"
+                                  title="Demandas diárias/recorrentes (ex: limpeza, portaria, ronda) - não contarão no futuro dashboard de tempo parado"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={edicaoColuna.recorrente}
+                                    onChange={(e) =>
+                                      setEdicaoColuna((v) => ({ ...v, recorrente: e.target.checked }))
+                                    }
+                                    className="h-4 w-4 rounded border-slate-300"
+                                  />
+                                  Recorrente
+                                </label>
                               </div>
                               <div className="flex shrink-0 gap-2">
                                 <Button type="button" variant="secondary" onClick={() => setColunaEditando(null)}>
@@ -2504,6 +2542,9 @@ export default function CondominiosPage() {
                                 )}
                                 {c.finalistico && (
                                   <span className="ml-1 text-xs text-emerald-600">— finalística</span>
+                                )}
+                                {c.recorrente && (
+                                  <span className="ml-1 text-xs text-purple-600">— recorrente</span>
                                 )}
                               </p>
                               {podeEditarCondominioAtual && (
