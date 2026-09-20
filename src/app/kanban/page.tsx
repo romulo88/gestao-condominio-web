@@ -1241,7 +1241,7 @@ function KanbanPageInner() {
           </div>
         ) : (
           <h1 className="flex-1 text-center text-xl font-semibold text-slate-900">
-            Kanban{sessao.condominioNome ? ` — ${sessao.condominioNome}` : ""}
+            Visão{sessao.condominioNome ? ` — ${sessao.condominioNome}` : ""}
           </h1>
         )}
         <div className="flex flex-1 items-center justify-end gap-3">

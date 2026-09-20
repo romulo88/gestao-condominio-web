@@ -42,7 +42,7 @@ function MenuIconesNav({ sessao }: { sessao: Sessao }) {
   const itens: { href: string; title: string; label: string }[] = [
     ...(podeGerenciarCondominio ? [{ href: "/condominios", title: "Cadastro de condomínio", label: "Condomínio" }] : []),
     ...(podeVerDemandas ? [{ href: "/demandas", title: "Demandas", label: "Demanda" }] : []),
-    ...(podeVerKanban ? [{ href: "/kanban", title: "Kanban", label: "Visão" }] : []),
+    ...(podeVerKanban ? [{ href: "/kanban", title: "Visão", label: "Visão" }] : []),
     ...(podeVerParametros ? [{ href: "/parametros", title: "Parâmetros do sistema", label: "Parâmetros" }] : []),
   ];
 

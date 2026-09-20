@@ -1473,7 +1473,7 @@ function DemandasPageInner() {
                           }`}
                         >
                           <IconeColunas className="h-3.5 w-3.5" />
-                          Aprovar com Kanban
+                          Aprovar e enviar para Visão
                         </button>
                         <span className="text-slate-300">|</span>
                         <button
@@ -1607,7 +1607,7 @@ function DemandasPageInner() {
                 {/* "Aprovar com Kanban": formulário de sempre, sem a parte de recusar ao lado. */}
                 {podeVerEtapas && decisaoAberta === d.id && decisaoModo === "kanban" && (
                   <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs font-medium text-slate-600">Aprovar e enviar para o Kanban</p>
+                    <p className="text-xs font-medium text-slate-600">Aprovar e enviar para Visão</p>
                     <div className="flex gap-2">
                       <select
                         value={colunaEscolhida}
