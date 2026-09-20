@@ -15,7 +15,9 @@ export type Sessao = {
   ultimoLoginAnterior: string | null;
 };
 
-const CHAVE = "sessao";
+// localStorage é por ORIGEM, não por caminho: outros sistemas no mesmo domínio (cada um no
+// seu prefixo) enxergam as mesmas chaves - por isso a chave tem prefixo próprio.
+const CHAVE = "commander:sessao";
 
 // Cache simples pra `getSessaoSnapshot` devolver a MESMA referência enquanto o valor
 // bruto não mudar - `useSyncExternalStore` exige isso (senão re-renderiza pra sempre,
