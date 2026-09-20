@@ -1629,7 +1629,7 @@ function DemandasPageInner() {
                         disabled={salvandoDecisao || (colunasKanban ?? []).length === 0}
                         onClick={() => handleAprovarComKanban(d.id)}
                       >
-                        Aprovar
+                        Aprovar para Visão
                       </Button>
                     </div>
                     {erroDecisao && <p className="text-sm text-red-600">{erroDecisao}</p>}
