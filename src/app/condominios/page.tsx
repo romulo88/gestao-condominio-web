@@ -843,7 +843,7 @@ export default function CondominiosPage() {
     try {
       await zerarSenhaVinculoFuncionario(sessao.token, f.vinculoId);
       window.alert(
-        `Senha de "${f.nome}" zerada - um código de acesso foi enviado pro e-mail cadastrado. A pessoa usa esse código como "senha atual" em "Esqueceu sua senha?" na tela de login pra definir a senha nova.`,
+        `Senha de "${f.nome}" zerada - um e-mail foi enviado pro endereço cadastrado avisando a pessoa. Ela precisa ir em "Esqueceu sua senha?" na tela de login (informando CPF e e-mail) pra receber o código e definir a senha nova.`,
       );
     } catch (err) {
       setErroLinhaFuncionario({
@@ -992,7 +992,7 @@ export default function CondominiosPage() {
     try {
       await zerarSenhaVinculoMorador(sessao.token, m.vinculoId);
       window.alert(
-        `Senha de "${m.nome}" zerada - um código de acesso foi enviado pro e-mail cadastrado. A pessoa usa esse código como "senha atual" em "Esqueceu sua senha?" na tela de login pra definir a senha nova.`,
+        `Senha de "${m.nome}" zerada - um e-mail foi enviado pro endereço cadastrado avisando a pessoa. Ela precisa ir em "Esqueceu sua senha?" na tela de login (informando CPF e e-mail) pra receber o código e definir a senha nova.`,
       );
     } catch (err) {
       setErroLinhaMorador({
