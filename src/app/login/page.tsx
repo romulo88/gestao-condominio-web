@@ -4,11 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ContextoDto,
+  esqueciSenha,
   labelContexto,
   login,
   selecionarContexto,
   trocarSenha,
-  verificarIdentidade,
 } from "@/lib/api";
 import { destinoPosLogin, salvarSessao } from "@/lib/session";
 import { apenasDigitos, formatarCpf } from "@/lib/format";
@@ -16,11 +16,13 @@ import { AuthLayout, BrandMark } from "@/components/auth-layout";
 import { Button, Input } from "@/components/ui";
 import { IconeOlho, IconeOlhoFechado } from "@/components/icons";
 
-/** "Esqueceu sua senha?" abre um modal de 2 passos: CPF+e-mail (`verificarIdentidade`)
- * confirma quem é a pessoa, depois senha atual+nova (`trocarSenha`) troca de verdade -
- * é o mesmo fluxo pro primeiro acesso, já que toda pessoa nasce com uma senha padrão
- * conhecida que nunca serve pra logar de verdade (`Pessoa.precisaTrocarSenha`, ver
- * `AuthService` no backend - login barra enquanto essa flag estiver ligada). */
+/** "Esqueceu sua senha?" abre um modal de 2 passos: CPF+e-mail (`esqueciSenha`) confirma
+ * quem é a pessoa e manda um código temporário pro e-mail cadastrado; depois esse código
+ * (como "senha atual") + a nova senha (`trocarSenha`) troca de verdade - é o mesmo fluxo
+ * pro primeiro acesso, já que toda pessoa nova (funcionário/morador) já nasce com um
+ * código assim, mandado por e-mail no cadastro (`SenhaProvisoriaService` no backend), e
+ * nunca com uma senha que já serve pra logar de verdade (`Pessoa.precisaTrocarSenha` -
+ * login barra enquanto essa flag estiver ligada). */
 export default function LoginPage() {
   const router = useRouter();
 
@@ -40,8 +42,9 @@ export default function LoginPage() {
 
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
 
-  // Modal "Esqueci minha senha": passo 1 (CPF+e-mail) confirma quem é a pessoa, passo 2
-  // (senha atual + nova) troca de verdade. Ver AuthService no backend.
+  // Modal "Esqueci minha senha": passo 1 (CPF+e-mail) confirma quem é a pessoa e manda um
+  // código temporário por e-mail; passo 2 (esse código como "senha atual" + a nova senha)
+  // troca de verdade. Ver AuthService no backend.
   const [modalEsqueciAberto, setModalEsqueciAberto] = useState(false);
   const [passoEsqueci, setPassoEsqueci] = useState<1 | 2>(1);
   const [esqueciCpf, setEsqueciCpf] = useState("");
@@ -129,12 +132,12 @@ export default function LoginPage() {
     setModalEsqueciAberto(false);
   }
 
-  async function handleVerificarIdentidade(e: React.FormEvent) {
+  async function handleEsqueciSenha(e: React.FormEvent) {
     e.preventDefault();
     setEsqueciErro(null);
     setEsqueciCarregando(true);
     try {
-      await verificarIdentidade(apenasDigitos(esqueciCpf), esqueciEmail);
+      await esqueciSenha(apenasDigitos(esqueciCpf), esqueciEmail);
       setPassoEsqueci(2);
     } catch (err) {
       setEsqueciErro(err instanceof Error ? err.message : "Falha ao conferir CPF e e-mail.");
@@ -276,9 +279,9 @@ export default function LoginPage() {
             </div>
 
             {passoEsqueci === 1 ? (
-              <form onSubmit={handleVerificarIdentidade} className="mt-4 space-y-3">
+              <form onSubmit={handleEsqueciSenha} className="mt-4 space-y-3">
                 <p className="text-xs text-slate-400">
-                  Confirme seu CPF e o e-mail cadastrado pra trocar sua senha.
+                  Confirme seu CPF e o e-mail cadastrado - vamos te mandar um código por e-mail.
                 </p>
                 <Input
                   required
@@ -298,18 +301,20 @@ export default function LoginPage() {
                 {esqueciErro && <p className="text-sm text-red-600">{esqueciErro}</p>}
                 <div className="flex justify-end pt-1">
                   <Button type="submit" disabled={esqueciCarregando}>
-                    {esqueciCarregando ? "Conferindo..." : "Continuar"}
+                    {esqueciCarregando ? "Enviando..." : "Enviar código"}
                   </Button>
                 </div>
               </form>
             ) : (
               <form onSubmit={handleTrocarSenha} className="mt-4 space-y-3">
-                <p className="text-xs text-slate-400">CPF e e-mail confirmados - agora troque sua senha.</p>
+                <p className="text-xs text-slate-400">
+                  Enviamos um código pro seu e-mail - use ele abaixo e escolha sua senha nova.
+                </p>
                 <Input
                   required
                   type="password"
                   autoComplete="current-password"
-                  placeholder="Senha atual"
+                  placeholder="Código recebido por e-mail"
                   value={esqueciSenhaAtual}
                   onChange={(e) => setEsqueciSenhaAtual(e.target.value)}
                 />

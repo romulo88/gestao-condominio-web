@@ -110,9 +110,10 @@ export async function login(cpf: string, senha: string): Promise<LoginResponse> 
 }
 
 /** Passo 1 de "Esqueci minha senha" - confirma que CPF + e-mail correspondem à mesma
- * pessoa (404 se não - vira erro, mesma mensagem tanto faz qual dos dois errou). */
-export async function verificarIdentidade(cpf: string, email: string): Promise<void> {
-  const res = await fetch(`${API_URL}/api/auth/verificar-identidade`, {
+ * pessoa (404 se não - vira erro, mesma mensagem tanto faz qual dos dois errou) e manda
+ * um código temporário por e-mail, que o passo 2 (`trocarSenha`) usa como senha atual. */
+export async function esqueciSenha(cpf: string, email: string): Promise<void> {
+  const res = await fetch(`${API_URL}/api/auth/esqueci-senha`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ cpf, email }),
@@ -511,9 +512,9 @@ export async function ativarVinculoFuncionario(token: string, id: number): Promi
   return parseOrThrow<FuncionarioCondominioResponse>(res);
 }
 
-/** Reseta a senha da pessoa por trás do vínculo pra padrão (`Trocar@123`) e liga de novo
- * `precisaTrocarSenha` - pro funcionário que esqueceu a senha atual. Mesmo padrão de
- * `zerarSenhaVinculoMorador`. */
+/** Reseta a senha da pessoa por trás do vínculo - o backend gera um código temporário,
+ * manda pro e-mail cadastrado e liga de novo `precisaTrocarSenha` - pro funcionário que
+ * esqueceu a senha atual. Mesmo padrão de `zerarSenhaVinculoMorador`. */
 export async function zerarSenhaVinculoFuncionario(token: string, id: number): Promise<FuncionarioCondominioResponse> {
   const res = await fetch(`${API_URL}/api/funcionarios-condominios/${id}/zerar-senha`, {
     method: "PATCH",
@@ -657,9 +658,9 @@ export async function ativarVinculoMorador(token: string, id: number): Promise<M
   return parseOrThrow<MoradorCondominioResponse>(res);
 }
 
-/** Reseta a senha da pessoa por trás do vínculo pra padrão (`Trocar@123`) e liga de novo
- * `precisaTrocarSenha` - pro morador que esqueceu a senha atual. Quem aciona precisa
- * avisar a pessoa da senha padrão por fora (a API não devolve o valor). */
+/** Reseta a senha da pessoa por trás do vínculo - o backend gera um código temporário,
+ * manda pro e-mail cadastrado e liga de novo `precisaTrocarSenha` - pro morador que
+ * esqueceu a senha atual. */
 export async function zerarSenhaVinculoMorador(token: string, id: number): Promise<MoradorCondominioResponse> {
   const res = await fetch(`${API_URL}/api/moradores-condominios/${id}/zerar-senha`, {
     method: "PATCH",

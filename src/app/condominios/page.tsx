@@ -166,6 +166,11 @@ export default function CondominiosPage() {
   // Mesmo padrão da edição de morador: reaproveita o formulário "Adicionar funcionário"
   // em vez de um formulário separado - `null` = modo cadastro (padrão).
   const [funcionarioEditandoId, setFuncionarioEditandoId] = useState<number | null>(null);
+  // Pedido do Romulo: uma vez que a pessoa já tem e-mail cadastrado, só administrador pode
+  // trocar (síndico/sub-síndico não - evita que troque o e-mail de outra pessoa pra tomar
+  // a conta dela depois). Calculado ao abrir a edição (não a cada tecla) - reflete o e-mail
+  // ORIGINAL do vínculo, não o que está sendo digitado agora.
+  const [emailBloqueadoFuncionario, setEmailBloqueadoFuncionario] = useState(false);
   const [erroLinhaFuncionario, setErroLinhaFuncionario] = useState<{ id: number; mensagem: string } | null>(null);
   const [ativandoFuncionario, setAtivandoFuncionario] = useState(false);
   const [zerandoSenhaFuncionarioId, setZerandoSenhaFuncionarioId] = useState<number | null>(null);
@@ -183,6 +188,9 @@ export default function CondominiosPage() {
   // separado ou edição inline na linha) - preenche os campos com o registro escolhido e
   // troca "Adicionar" por "Salvar". `null` = formulário em modo cadastro (padrão).
   const [moradorEditandoId, setMoradorEditandoId] = useState<number | null>(null);
+  // Mesma trava de e-mail já cadastrado da edição de funcionário (ver
+  // `emailBloqueadoFuncionario`) - só administrador pode trocar.
+  const [emailBloqueadoMorador, setEmailBloqueadoMorador] = useState(false);
   const [erroLinhaMorador, setErroLinhaMorador] = useState<{ id: number; mensagem: string } | null>(null);
   const [ativandoMorador, setAtivandoMorador] = useState(false);
   // vinculoId sendo zerado no momento (spinner/disable só naquela linha) - null quando nenhum.
@@ -724,6 +732,7 @@ export default function CondominiosPage() {
       perfil: f.perfil ?? "",
       funcao: f.funcao ?? "",
     });
+    setEmailBloqueadoFuncionario(!ehAdministrador && !!f.email);
     setErroFuncionarios(null);
     setErroLinhaFuncionario(null);
   }
@@ -731,6 +740,7 @@ export default function CondominiosPage() {
   function cancelarEdicaoFuncionario() {
     setFuncionarioEditandoId(null);
     setNovoFuncionario(FUNCIONARIO_VAZIO);
+    setEmailBloqueadoFuncionario(false);
     setErroFuncionarios(null);
   }
 
@@ -833,7 +843,7 @@ export default function CondominiosPage() {
     try {
       await zerarSenhaVinculoFuncionario(sessao.token, f.vinculoId);
       window.alert(
-        `Senha de "${f.nome}" zerada para a padrão (Trocar@123). Avise a pessoa - ela vai precisar trocar no próximo login, pelo "Esqueceu sua senha?" da tela de login.`,
+        `Senha de "${f.nome}" zerada - um código de acesso foi enviado pro e-mail cadastrado. A pessoa usa esse código como "senha atual" em "Esqueceu sua senha?" na tela de login pra definir a senha nova.`,
       );
     } catch (err) {
       setErroLinhaFuncionario({
@@ -889,6 +899,7 @@ export default function CondominiosPage() {
       blocoId: m.blocoId ? String(m.blocoId) : "",
       numeroUnidade: m.numeroUnidade,
     });
+    setEmailBloqueadoMorador(!ehAdministrador && !!m.email);
     setErroMoradores(null);
     setErroLinhaMorador(null);
   }
@@ -896,6 +907,7 @@ export default function CondominiosPage() {
   function cancelarEdicaoMorador() {
     setMoradorEditandoId(null);
     setNovoMorador(MORADOR_VAZIO);
+    setEmailBloqueadoMorador(false);
     setErroMoradores(null);
   }
 
@@ -962,10 +974,10 @@ export default function CondominiosPage() {
   }
 
   /** "Esqueci minha senha" (tela de login) exige saber o e-mail e a senha atual - pra quem
-   * nem a senha atual lembra mais, o síndico/sub-síndico/administrador zera aqui: volta
-   * pra senha padrão e liga `precisaTrocarSenha` de novo, igual pessoa recém-cadastrada.
-   * A API não devolve a senha - precisa avisar o morador por fora (mesma ressalva de
-   * segurança do cadastro, pra não virar um valor público). */
+   * nem a senha atual lembra mais, o síndico/sub-síndico/administrador zera aqui: o
+   * backend gera um código temporário e manda pro e-mail cadastrado, ligando
+   * `precisaTrocarSenha` de novo (ver `SenhaProvisoriaService`) - a pessoa usa esse código
+   * como "senha atual" no mesmo "Esqueceu sua senha?" da tela de login. */
   async function handleZerarSenhaMorador(m: MoradorDoCondominio) {
     if (!sessao) return;
     if (
@@ -980,7 +992,7 @@ export default function CondominiosPage() {
     try {
       await zerarSenhaVinculoMorador(sessao.token, m.vinculoId);
       window.alert(
-        `Senha de "${m.nome}" zerada para a padrão (Trocar@123). Avise a pessoa - ela vai precisar trocar no próximo login, pelo "Esqueceu sua senha?" da tela de login.`,
+        `Senha de "${m.nome}" zerada - um código de acesso foi enviado pro e-mail cadastrado. A pessoa usa esse código como "senha atual" em "Esqueceu sua senha?" na tela de login pra definir a senha nova.`,
       );
     } catch (err) {
       setErroLinhaMorador({
@@ -1807,16 +1819,27 @@ export default function CondominiosPage() {
                       continua opcional no banco (pedido do Romulo) - o `required` aqui só
                       reflete a regra de negócio, não uma obrigatoriedade de schema. Em
                       modo cadastro, só pula mostrar se a pessoa já tiver um e-mail (ex: já
-                      é morador); em modo edição, sempre editável. */}
+                      é morador); em modo edição, sempre editável - a menos que já tenha
+                      e-mail cadastrado e quem está editando não seja administrador
+                      (`emailBloqueadoFuncionario` - o backend já reforça essa mesma trava,
+                      isso aqui só evita a pessoa preencher e levar um erro na hora de salvar). */}
                   {(funcionarioEditandoId !== null ||
                     (cpfCompleto && !buscandoCpf && !erroBuscaCpf && !pessoaEncontrada?.email)) && (
-                    <Input
-                      required={novoFuncionario.perfil !== ""}
-                      type="email"
-                      placeholder={novoFuncionario.perfil !== "" ? "E-mail" : "E-mail (opcional sem perfil)"}
-                      value={novoFuncionario.email}
-                      onChange={(e) => setNovoFuncionario((f) => ({ ...f, email: e.target.value }))}
-                    />
+                    <div>
+                      <Input
+                        required={novoFuncionario.perfil !== ""}
+                        type="email"
+                        disabled={emailBloqueadoFuncionario}
+                        placeholder={novoFuncionario.perfil !== "" ? "E-mail" : "E-mail (opcional sem perfil)"}
+                        value={novoFuncionario.email}
+                        onChange={(e) => setNovoFuncionario((f) => ({ ...f, email: e.target.value }))}
+                      />
+                      {emailBloqueadoFuncionario && (
+                        <p className="mt-1 text-xs text-slate-400">
+                          Só administrador pode trocar o e-mail de quem já tem um cadastrado.
+                        </p>
+                      )}
+                    </div>
                   )}
 
                   <select
@@ -2061,16 +2084,26 @@ export default function CondominiosPage() {
 
                   {/* E-mail é obrigatório pro papel de morador (diferente de funcionário) - em
                       modo cadastro, só pula pedir se a pessoa já tiver um (ex: já é
-                      funcionário); em modo edição, sempre editável. */}
+                      funcionário); em modo edição, sempre editável - a menos que já tenha
+                      e-mail cadastrado e quem está editando não seja administrador
+                      (`emailBloqueadoMorador`, mesma trava de `emailBloqueadoFuncionario`). */}
                   {(moradorEditandoId !== null ||
                     (cpfCompletoMorador && !buscandoCpfMorador && !erroBuscaCpfMorador && !pessoaEncontradaMorador?.email)) && (
-                    <Input
-                      required
-                      type="email"
-                      placeholder="E-mail"
-                      value={novoMorador.email}
-                      onChange={(e) => setNovoMorador((m) => ({ ...m, email: e.target.value }))}
-                    />
+                    <div>
+                      <Input
+                        required
+                        type="email"
+                        disabled={emailBloqueadoMorador}
+                        placeholder="E-mail"
+                        value={novoMorador.email}
+                        onChange={(e) => setNovoMorador((m) => ({ ...m, email: e.target.value }))}
+                      />
+                      {emailBloqueadoMorador && (
+                        <p className="mt-1 text-xs text-slate-400">
+                          Só administrador pode trocar o e-mail de quem já tem um cadastrado.
+                        </p>
+                      )}
+                    </div>
                   )}
 
                   {campos.tipo === "apartamento" && (
