@@ -11,24 +11,23 @@ import {
   trocarSenha,
 } from "@/lib/api";
 import { destinoPosLogin, salvarSessao } from "@/lib/session";
-import { apenasDigitos, formatarCpf } from "@/lib/format";
 import { AuthLayout, BrandMark } from "@/components/auth-layout";
 import { Button, Input } from "@/components/ui";
 import { IconeOlho, IconeOlhoFechado } from "@/components/icons";
 
-/** "Esqueceu sua senha?" abre um modal de 2 passos: CPF+e-mail (`esqueciSenha`) confirma
- * quem é a pessoa e manda um código temporário pro e-mail cadastrado; depois esse código
- * (como "senha atual") + a nova senha (`trocarSenha`) troca de verdade - é o mesmo fluxo
- * pro primeiro acesso, já que toda pessoa nova (funcionário/morador) já nasce com um
- * código assim, mandado por e-mail no cadastro (`SenhaProvisoriaService` no backend), e
- * nunca com uma senha que já serve pra logar de verdade (`Pessoa.precisaTrocarSenha` -
- * login barra enquanto essa flag estiver ligada). */
+/** "Esqueceu sua senha?" abre um modal de 2 passos: e-mail (`esqueciSenha`) confirma quem
+ * é a pessoa e manda um código temporário pro e-mail cadastrado; depois esse código (como
+ * "senha atual") + a nova senha (`trocarSenha`) troca de verdade - é o mesmo fluxo pro
+ * primeiro acesso, já que toda pessoa nova (funcionário/morador) já nasce com um código
+ * assim, mandado por e-mail no cadastro (`SenhaProvisoriaService` no backend), e nunca com
+ * uma senha que já serve pra logar de verdade (`Pessoa.precisaTrocarSenha` - login barra
+ * enquanto essa flag estiver ligada). */
 export default function LoginPage() {
   const router = useRouter();
 
-  // Passo 1: cpf/senha. Passo 2 (só aparece se a pessoa tiver mais de 1 vínculo ativo):
-  // escolher em qual condomínio + papel entrar.
-  const [cpf, setCpf] = useState("");
+  // Passo 1: e-mail/senha (CPF saiu do sistema, v177/LGPD). Passo 2 (só aparece se a
+  // pessoa tiver mais de 1 vínculo ativo): escolher em qual condomínio + papel entrar.
+  const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [manterConectado, setManterConectado] = useState(false);
@@ -42,12 +41,11 @@ export default function LoginPage() {
 
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
 
-  // Modal "Esqueci minha senha": passo 1 (CPF+e-mail) confirma quem é a pessoa e manda um
+  // Modal "Esqueci minha senha": passo 1 (e-mail) confirma quem é a pessoa e manda um
   // código temporário por e-mail; passo 2 (esse código como "senha atual" + a nova senha)
   // troca de verdade. Ver AuthService no backend.
   const [modalEsqueciAberto, setModalEsqueciAberto] = useState(false);
   const [passoEsqueci, setPassoEsqueci] = useState<1 | 2>(1);
-  const [esqueciCpf, setEsqueciCpf] = useState("");
   const [esqueciEmail, setEsqueciEmail] = useState("");
   const [esqueciSenhaAtual, setEsqueciSenhaAtual] = useState("");
   const [esqueciNovaSenha, setEsqueciNovaSenha] = useState("");
@@ -60,7 +58,7 @@ export default function LoginPage() {
     setErro(null);
     setCarregando(true);
     try {
-      const resposta = await login(apenasDigitos(cpf), senha);
+      const resposta = await login(email, senha);
       setNome(resposta.nome);
       setUltimoLoginAnterior(resposta.ultimoLoginAnterior);
       if (resposta.token && resposta.contextos?.length === 1) {
@@ -118,8 +116,7 @@ export default function LoginPage() {
 
   function abrirModalEsqueci() {
     setPassoEsqueci(1);
-    setEsqueciCpf(cpf);
-    setEsqueciEmail("");
+    setEsqueciEmail(email);
     setEsqueciSenhaAtual("");
     setEsqueciNovaSenha("");
     setEsqueciConfirmarSenha("");
@@ -137,10 +134,10 @@ export default function LoginPage() {
     setEsqueciErro(null);
     setEsqueciCarregando(true);
     try {
-      await esqueciSenha(apenasDigitos(esqueciCpf), esqueciEmail);
+      await esqueciSenha(esqueciEmail);
       setPassoEsqueci(2);
     } catch (err) {
-      setEsqueciErro(err instanceof Error ? err.message : "Falha ao conferir CPF e e-mail.");
+      setEsqueciErro(err instanceof Error ? err.message : "Falha ao conferir o e-mail.");
     } finally {
       setEsqueciCarregando(false);
     }
@@ -159,9 +156,9 @@ export default function LoginPage() {
     }
     setEsqueciCarregando(true);
     try {
-      await trocarSenha(apenasDigitos(esqueciCpf), esqueciEmail, esqueciSenhaAtual, esqueciNovaSenha);
+      await trocarSenha(esqueciEmail, esqueciSenhaAtual, esqueciNovaSenha);
       setModalEsqueciAberto(false);
-      setCpf(formatarCpf(esqueciCpf));
+      setEmail(esqueciEmail);
       setSenha("");
       setMensagemSucesso("Senha alterada - já pode entrar com ela.");
     } catch (err) {
@@ -202,15 +199,13 @@ export default function LoginPage() {
 
       <form onSubmit={handleLogin} className="mt-6 space-y-3">
         <Input
-          id="cpf"
-          type="text"
-          inputMode="numeric"
+          id="email"
+          type="email"
           autoComplete="username"
           required
-          maxLength={14}
-          value={cpf}
-          onChange={(e) => setCpf(formatarCpf(e.target.value))}
-          placeholder="CPF"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="E-mail"
         />
 
         <div className="relative">
@@ -281,16 +276,8 @@ export default function LoginPage() {
             {passoEsqueci === 1 ? (
               <form onSubmit={handleEsqueciSenha} className="mt-4 space-y-3">
                 <p className="text-xs text-slate-400">
-                  Confirme seu CPF e o e-mail cadastrado - vamos te mandar um código por e-mail.
+                  Confirme o e-mail cadastrado - vamos te mandar um código por e-mail.
                 </p>
-                <Input
-                  required
-                  inputMode="numeric"
-                  maxLength={14}
-                  placeholder="CPF"
-                  value={esqueciCpf}
-                  onChange={(e) => setEsqueciCpf(formatarCpf(e.target.value))}
-                />
                 <Input
                   required
                   type="email"

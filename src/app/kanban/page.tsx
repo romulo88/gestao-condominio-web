@@ -57,7 +57,7 @@ import {
   VisualizadorPorRegraResponse,
 } from "@/lib/api";
 import { useSessaoObrigatoria } from "@/lib/use-sessao-obrigatoria";
-import { apenasDigitos, etapaVencida, etapaVigente, existeNotaPendente } from "@/lib/format";
+import { etapaVencida, etapaVigente, existeNotaPendente } from "@/lib/format";
 import { ehVideo } from "@/lib/imagem-upload";
 import { AppShell, EVENTO_ALERTAS_DEMANDAS } from "@/components/app-shell";
 import { AdicionarAnexoBotao } from "@/components/adicionar-anexo-botao";
@@ -337,7 +337,7 @@ function KanbanPageInner() {
     Record<number, VisualizadorPorRegraResponse[]>
   >({});
   const [erroAcesso, setErroAcesso] = useState<string | null>(null);
-  const [novoAcessoCpf, setNovoAcessoCpf] = useState("");
+  const [novoAcessoId, setNovoAcessoId] = useState<number | null>(null);
   const [salvandoAcesso, setSalvandoAcesso] = useState(false);
 
   // Atribuir responsável (um ou mais funcionários) - mesmo padrão do acesso sigiloso
@@ -347,7 +347,7 @@ function KanbanPageInner() {
     Record<number, CandidatoResponsavelResponse[]>
   >({});
   const [erroResponsavel, setErroResponsavel] = useState<string | null>(null);
-  const [novoResponsavelCpf, setNovoResponsavelCpf] = useState("");
+  const [novoResponsavelId, setNovoResponsavelId] = useState<number | null>(null);
   const [salvandoResponsavel, setSalvandoResponsavel] = useState(false);
 
   const [documentosPorDemanda, setDocumentosPorDemanda] = useState<Record<number, DemandaDocumentoResponse[]>>({});
@@ -361,7 +361,7 @@ function KanbanPageInner() {
   // Notas (pedido do Romulo): morador pergunta sobre o andamento, funcionário responde se
   // julgar necessário - mesmo padrão levado do formulário de `/demandas` pro modal de
   // detalhe do Kanban. Só uma nota-pai respondida por vez (mesmo espírito de
-  // `novoResponsavelCpf`/`novoAcessoCpf` acima - só um modal de detalhe aberto por vez).
+  // `novoResponsavelId`/`novoAcessoId` acima - só um modal de detalhe aberto por vez).
   const [notasPorDemanda, setNotasPorDemanda] = useState<Record<number, DemandaNotaResponse[]>>({});
   const [erroNotas, setErroNotas] = useState<string | null>(null);
   const [novaNotaTexto, setNovaNotaTexto] = useState("");
@@ -568,9 +568,9 @@ function KanbanPageInner() {
     setErroSigilo(null);
     setErroImagens(null);
     setErroAcesso(null);
-    setNovoAcessoCpf("");
+    setNovoAcessoId(null);
     setErroResponsavel(null);
-    setNovoResponsavelCpf("");
+    setNovoResponsavelId(null);
     setEtiquetasExpandido(false);
     setNovaEtiquetaNome("");
     setNovaEtiquetaCor(COR_PADRAO);
@@ -777,19 +777,19 @@ function KanbanPageInner() {
   async function handleConcederAcesso(e: React.FormEvent) {
     e.preventDefault();
     if (!sessao || modalDetalheId === null) return;
-    if (!novoAcessoCpf) {
+    if (novoAcessoId === null) {
       setErroAcesso("Escolha alguém na busca antes de conceder.");
       return;
     }
     setErroAcesso(null);
     setSalvandoAcesso(true);
     try {
-      const concedidos = await concederAcessoSigiloso(sessao.token, modalDetalheId, apenasDigitos(novoAcessoCpf));
+      const concedidos = await concederAcessoSigiloso(sessao.token, modalDetalheId, novoAcessoId);
       setAcessosPorDemanda((atual) => ({
         ...atual,
         [modalDetalheId]: [...(atual[modalDetalheId] ?? []), ...concedidos],
       }));
-      setNovoAcessoCpf("");
+      setNovoAcessoId(null);
     } catch (err) {
       setErroAcesso(err instanceof Error ? err.message : "Falha ao conceder acesso.");
     } finally {
@@ -814,14 +814,14 @@ function KanbanPageInner() {
   async function handleAtribuirResponsavel(e: React.FormEvent) {
     e.preventDefault();
     if (!sessao || modalDetalheId === null) return;
-    if (!novoResponsavelCpf) {
+    if (novoResponsavelId === null) {
       setErroResponsavel("Escolha alguém na busca antes de atribuir.");
       return;
     }
     setErroResponsavel(null);
     setSalvandoResponsavel(true);
     try {
-      const atribuido = await atribuirResponsavel(sessao.token, modalDetalheId, apenasDigitos(novoResponsavelCpf));
+      const atribuido = await atribuirResponsavel(sessao.token, modalDetalheId, novoResponsavelId);
       setResponsaveisPorDemanda((atual) => ({
         ...atual,
         [modalDetalheId]: [...(atual[modalDetalheId] ?? []), atribuido],
@@ -841,7 +841,7 @@ function KanbanPageInner() {
             : d,
         ),
       );
-      setNovoResponsavelCpf("");
+      setNovoResponsavelId(null);
     } catch (err) {
       setErroResponsavel(err instanceof Error ? err.message : "Falha ao atribuir responsável.");
     } finally {
@@ -2190,8 +2190,8 @@ function KanbanPageInner() {
                   <div className="min-w-0 flex-1">
                     <ComboPessoa
                       candidatos={candidatosAcessoPorDemanda[demandaDetalhe.id] ?? null}
-                      onSelecionar={setNovoAcessoCpf}
-                      valorSelecionado={novoAcessoCpf}
+                      onSelecionar={setNovoAcessoId}
+                      valorSelecionado={novoAcessoId}
                     />
                   </div>
                   <Button type="submit" disabled={salvandoAcesso}>
@@ -2308,8 +2308,8 @@ function KanbanPageInner() {
                     <div className="min-w-0 flex-1">
                       <ComboFuncionario
                         candidatos={candidatosResponsavelPorDemanda[demandaDetalhe.id] ?? null}
-                        onSelecionar={setNovoResponsavelCpf}
-                        valorSelecionado={novoResponsavelCpf}
+                        onSelecionar={setNovoResponsavelId}
+                        valorSelecionado={novoResponsavelId}
                       />
                     </div>
                     <Button type="submit" disabled={salvandoResponsavel}>

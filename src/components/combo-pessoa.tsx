@@ -2,38 +2,41 @@
 
 import { useMemo, useState } from "react";
 import { CandidatoAcessoResponse, PERFIL_LABEL } from "@/lib/api";
-import { formatarCpf } from "@/lib/format";
 import { Input } from "@/components/ui";
 
 type Props = {
   /** `null` enquanto ainda está carregando. */
   candidatos: CandidatoAcessoResponse[] | null;
-  onSelecionar: (cpfFormatado: string) => void;
+  onSelecionar: (pessoaId: number) => void;
   placeholder?: string;
-  /** CPF selecionado guardado pelo formulário pai (ex: `novoAcessoCpfPorDemanda[d.id]`).
-   * Só serve pra saber quando o pai LIMPOU esse campo (ex: depois de "Conceder" com
-   * sucesso) e então limpar o texto exibido aqui também - sem isso o texto da pessoa
-   * selecionada ficava preso na tela mesmo com o formulário "limpo" por baixo. */
-  valorSelecionado: string;
+  /** Id da pessoa selecionada, guardado pelo formulário pai (ex:
+   * `novoAcessoIdPorDemanda[d.id]`). Só serve pra saber quando o pai LIMPOU esse campo
+   * (ex: depois de "Conceder" com sucesso) e então limpar o texto exibido aqui também -
+   * sem isso o texto da pessoa selecionada ficava preso na tela mesmo com o formulário
+   * "limpo" por baixo. */
+  valorSelecionado: number | null;
 };
 
+/** "Nome (unidade)" (condomínio de casas, sem bloco) ou "Nome (bloco - unidade)"
+ * (apartamento com bloco) pra morador; "Nome (cargo)" pra funcionário - pedido do Romulo:
+ * moradores como visualizadores de demanda sigilosa buscam por nome, trazendo a unidade
+ * entre parênteses (bloco - unidade quando o condomínio tiver bloco). */
 function rotulo(c: CandidatoAcessoResponse): string {
-  const meio =
-    c.tipoPessoa === "morador"
-      ? c.unidade ?? "morador"
-      : c.perfil
-        ? PERFIL_LABEL[c.perfil]
-        : c.funcao || "Sem perfil";
-  return `${c.nome} — ${meio}`;
+  if (c.tipoPessoa === "morador") {
+    const unidade = c.blocoNome ? `${c.blocoNome} - ${c.unidade}` : c.unidade ?? "";
+    return unidade ? `${c.nome} (${unidade})` : c.nome;
+  }
+  const cargo = c.perfil ? PERFIL_LABEL[c.perfil] : c.funcao || "Sem perfil";
+  return `${c.nome} (${cargo})`;
 }
 
 /** Combo com sugestão pro "Gerenciar acesso" (item 4.8): digitar filtra as pessoas ativas
  * do condomínio (`candidatos`, ver `listarCandidatosAcesso`) só por NOME (pedido do
- * Romulo); clicar numa sugestão chama `onSelecionar` com o CPF já formatado - quem usa
- * este componente só precisa jogar esse CPF no mesmo lugar que já guardava antes (o
- * "Conceder" continua sendo um passo separado, de propósito - selecionar aqui não concede
- * sozinho). Sugestão mostra nome + unidade (morador) ou nome + cargo/função (funcionário) -
- * nunca mais o CPF, que só é usado internamente pra identificar quem foi selecionado. */
+ * Romulo); clicar numa sugestão chama `onSelecionar` com o id da pessoa - quem usa este
+ * componente só precisa jogar esse id no mesmo lugar que já guardava antes (o "Conceder"
+ * continua sendo um passo separado, de propósito - selecionar aqui não concede sozinho).
+ * Sugestão mostra nome + unidade (morador) ou nome + cargo/função (funcionário) - CPF
+ * saiu do sistema (v177/LGPD). */
 export function ComboPessoa({
   candidatos,
   onSelecionar,
@@ -50,7 +53,7 @@ export function ComboPessoa({
   const [ultimoValorSelecionado, setUltimoValorSelecionado] = useState(valorSelecionado);
   if (valorSelecionado !== ultimoValorSelecionado) {
     setUltimoValorSelecionado(valorSelecionado);
-    if (valorSelecionado === "") setBusca("");
+    if (valorSelecionado === null) setBusca("");
   }
 
   const buscaNormalizada = busca.trim().toLowerCase();
@@ -62,7 +65,7 @@ export function ComboPessoa({
   function selecionar(c: CandidatoAcessoResponse) {
     setBusca(rotulo(c));
     setAberto(false);
-    onSelecionar(formatarCpf(c.cpf));
+    onSelecionar(c.pessoaId);
   }
 
   return (
@@ -81,7 +84,7 @@ export function ComboPessoa({
       {aberto && sugeridos.length > 0 && (
         <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
           {sugeridos.map((c) => (
-            <li key={`${c.tipoPessoa}-${c.cpf}`}>
+            <li key={`${c.tipoPessoa}-${c.pessoaId}`}>
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}

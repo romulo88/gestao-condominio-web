@@ -1,16 +1,8 @@
 // Máscaras visuais compartilhadas - o que vai pro backend é sempre `apenasDigitos(...)`,
-// nunca o valor mascarado (CPF/CNPJ são guardados/comparados sem pontuação).
+// nunca o valor mascarado (CNPJ é guardado/comparado sem pontuação).
 
 export function apenasDigitos(valor: string): string {
   return valor.replace(/\D/g, "");
-}
-
-export function formatarCpf(valor: string): string {
-  return apenasDigitos(valor)
-    .slice(0, 11)
-    .replace(/(\d{3})(\d)/, "$1.$2")
-    .replace(/(\d{3})(\d)/, "$1.$2")
-    .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
 }
 
 export function formatarCnpj(valor: string): string {
@@ -20,6 +12,22 @@ export function formatarCnpj(valor: string): string {
     .replace(/(\d{3})(\d)/, "$1.$2")
     .replace(/(\d{3})(\d)/, "$1/$2")
     .replace(/(\d{4})(\d{1,2})$/, "$1-$2");
+}
+
+/** Telefone (LGPD, v177) - campo opcional, guardado sem máscara. Máscara adaptativa: 10
+ * dígitos vira fixo `(XX) XXXX-XXXX`, 11 vira celular `(XX) XXXXX-XXXX` - mesmo padrão de
+ * apps brasileiros, aceita os dois formatos sem exigir escolha prévia. */
+export function formatarTelefone(valor: string | null | undefined): string {
+  if (!valor) return "";
+  const digitos = apenasDigitos(valor).slice(0, 11);
+  if (digitos.length <= 10) {
+    return digitos
+      .replace(/(\d{2})(\d)/, "($1) $2")
+      .replace(/(\d{4})(\d{1,4})$/, "$1-$2");
+  }
+  return digitos
+    .replace(/(\d{2})(\d)/, "($1) $2")
+    .replace(/(\d{5})(\d{1,4})$/, "$1-$2");
 }
 
 /** Etapa (`DemandaEtapaResponse`) com prazo vencido: tem prazo marcado, o prazo já passou

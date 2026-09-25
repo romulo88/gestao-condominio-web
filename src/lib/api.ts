@@ -93,40 +93,39 @@ async function parseOrThrow<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-/** Como `parseOrThrow`, mas 404 vira `null` em vez de erro - usado nos "buscar por cpf"
+/** Como `parseOrThrow`, mas 404 vira `null` em vez de erro - usado nos "buscar por e-mail"
  * (não existir ainda é uma resposta válida, não uma falha). */
 async function parseOrNullSe404<T>(res: Response): Promise<T | null> {
   if (res.status === 404) return null;
   return parseOrThrow<T>(res);
 }
 
-export async function login(cpf: string, senha: string): Promise<LoginResponse> {
+export async function login(email: string, senha: string): Promise<LoginResponse> {
   const res = await fetch(`${API_URL}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ cpf, senha }),
+    body: JSON.stringify({ email, senha }),
   });
   return parseOrThrow<LoginResponse>(res);
 }
 
-/** Passo 1 de "Esqueci minha senha" - confirma que CPF + e-mail correspondem à mesma
- * pessoa (404 se não - vira erro, mesma mensagem tanto faz qual dos dois errou) e manda
- * um código temporário por e-mail, que o passo 2 (`trocarSenha`) usa como senha atual. */
-export async function esqueciSenha(cpf: string, email: string): Promise<void> {
+/** Passo 1 de "Esqueci minha senha" - confirma que existe pessoa com esse e-mail (404 se
+ * não - vira erro) e manda um código temporário por e-mail, que o passo 2 (`trocarSenha`)
+ * usa como senha atual. */
+export async function esqueciSenha(email: string): Promise<void> {
   const res = await fetch(`${API_URL}/api/auth/esqueci-senha`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ cpf, email }),
+    body: JSON.stringify({ email }),
   });
   if (!res.ok) {
     await parseOrThrow(res);
   }
 }
 
-/** Passo 2 de "Esqueci minha senha" - troca a senha (CPF + e-mail de novo + senha atual)
- * e libera o login de verdade (desliga `Pessoa.precisaTrocarSenha` no backend). */
+/** Passo 2 de "Esqueci minha senha" - troca a senha (e-mail + senha atual) e libera o
+ * login de verdade (desliga `Pessoa.precisaTrocarSenha` no backend). */
 export async function trocarSenha(
-  cpf: string,
   email: string,
   senhaAtual: string,
   novaSenha: string,
@@ -134,7 +133,7 @@ export async function trocarSenha(
   const res = await fetch(`${API_URL}/api/auth/trocar-senha`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ cpf, email, senhaAtual, novaSenha }),
+    body: JSON.stringify({ email, senhaAtual, novaSenha }),
   });
   if (!res.ok) {
     await parseOrThrow(res);
@@ -337,21 +336,23 @@ export async function desativarCondominio(token: string, id: number): Promise<Co
 export type PessoaResponse = {
   id: number;
   nome: string;
-  cpf: string;
   email: string | null;
+  telefone: string | null;
 };
 
-/** null quando não existe nenhuma pessoa com esse CPF ainda (não é erro). */
-export async function buscarPessoaPorCpf(token: string, cpf: string): Promise<PessoaResponse | null> {
-  const res = await fetch(`${API_URL}/api/pessoas/buscar-por-cpf?cpf=${cpf}`, { headers: authHeaders(token) });
+/** null quando não existe nenhuma pessoa com esse e-mail ainda (não é erro). */
+export async function buscarPessoaPorEmail(token: string, email: string): Promise<PessoaResponse | null> {
+  const res = await fetch(`${API_URL}/api/pessoas/buscar-por-email?email=${encodeURIComponent(email)}`, {
+    headers: authHeaders(token),
+  });
   return parseOrNullSe404<PessoaResponse>(res);
 }
 
 export type FuncionarioResponse = {
   id: number;
   nome: string;
-  cpf: string;
   email: string | null;
+  telefone: string | null;
   /** Link assinado (expira em 15min) - null quando a pessoa não tem foto cadastrada. */
   fotoUrl: string | null;
   situacao: Situacao;
@@ -359,16 +360,18 @@ export type FuncionarioResponse = {
   updatedAt: string;
 };
 
-/** null quando o CPF ainda não tem papel de funcionário (mesmo que já exista como pessoa). */
-export async function buscarFuncionarioPorCpf(token: string, cpf: string): Promise<FuncionarioResponse | null> {
-  const res = await fetch(`${API_URL}/api/funcionarios/buscar-por-cpf?cpf=${cpf}`, { headers: authHeaders(token) });
+/** null quando o e-mail ainda não tem papel de funcionário (mesmo que já exista como pessoa). */
+export async function buscarFuncionarioPorEmail(token: string, email: string): Promise<FuncionarioResponse | null> {
+  const res = await fetch(`${API_URL}/api/funcionarios/buscar-por-email?email=${encodeURIComponent(email)}`, {
+    headers: authHeaders(token),
+  });
   return parseOrNullSe404<FuncionarioResponse>(res);
 }
 
 export type FuncionarioCreateRequest = {
   nome: string;
-  cpf: string;
   email: string | null;
+  telefone: string | null;
 };
 
 /** Não recebe senha no cadastro - só reaproveita/cria a Pessoa e o papel de funcionário
@@ -434,7 +437,7 @@ export async function listarVinculosPorCondominio(
   return parseOrThrow<FuncionarioCondominioResponse[]>(res);
 }
 
-/** Já vem com nome/CPF/e-mail/foto embutidos - ver `FuncionarioCondominioResumoResponse`
+/** Já vem com nome/e-mail/telefone/foto embutidos - ver `FuncionarioCondominioResumoResponse`
  * no backend (elimina o `buscarFuncionario` por linha que a tela batia antes, um N+1 de
  * verdade). Usada pela aba Funcionário do cadastro de condomínio, paginada (pedido do
  * Romulo: 15 por página, "pra não listar todos de vez"). */
@@ -442,8 +445,8 @@ export type FuncionarioCondominioResumoResponse = {
   vinculoId: number;
   funcionarioId: number;
   nome: string;
-  cpf: string;
   email: string | null;
+  telefone: string | null;
   fotoUrl: string | null;
   perfil: FuncionarioPerfil | null;
   funcao: string | null;
@@ -478,18 +481,19 @@ export async function criarVinculoFuncionario(
   return parseOrThrow<FuncionarioCondominioResponse>(res);
 }
 
-/** Só corrige perfil/e-mail/função - trocar de funcionário ou condomínio é um vínculo novo, não uma edição. */
+/** Só corrige perfil/e-mail/telefone/função - trocar de funcionário ou condomínio é um vínculo novo, não uma edição. */
 export async function atualizarVinculoFuncionario(
   token: string,
   id: number,
   perfil: FuncionarioPerfil | null,
   email: string,
+  telefone: string | null,
   funcao: string | null,
 ): Promise<FuncionarioCondominioResponse> {
   const res = await fetch(`${API_URL}/api/funcionarios-condominios/${id}`, {
     method: "PATCH",
     headers: authHeaders(token),
-    body: JSON.stringify({ perfil, email, funcao }),
+    body: JSON.stringify({ perfil, email, telefone, funcao }),
   });
   return parseOrThrow<FuncionarioCondominioResponse>(res);
 }
@@ -527,22 +531,24 @@ export async function zerarSenhaVinculoFuncionario(token: string, id: number): P
 export type MoradorResponse = {
   id: number;
   nome: string;
-  cpf: string;
   email: string | null;
+  telefone: string | null;
   situacao: Situacao;
   createdAt: string;
   updatedAt: string;
 };
 
-export async function buscarMoradorPorCpf(token: string, cpf: string): Promise<MoradorResponse | null> {
-  const res = await fetch(`${API_URL}/api/moradores/buscar-por-cpf?cpf=${cpf}`, { headers: authHeaders(token) });
+export async function buscarMoradorPorEmail(token: string, email: string): Promise<MoradorResponse | null> {
+  const res = await fetch(`${API_URL}/api/moradores/buscar-por-email?email=${encodeURIComponent(email)}`, {
+    headers: authHeaders(token),
+  });
   return parseOrNullSe404<MoradorResponse>(res);
 }
 
 export type MoradorCreateRequest = {
   nome: string;
-  cpf: string;
   email: string;
+  telefone: string | null;
 };
 
 /** Não recebe senha no cadastro - só reaproveita/cria a Pessoa e o papel de morador (sem
@@ -582,7 +588,7 @@ export async function listarVinculosMoradorPorCondominio(
   return parseOrThrow<MoradorCondominioResponse[]>(res);
 }
 
-/** Já vem com nome/CPF/e-mail embutidos - ver `MoradorCondominioResumoResponse` no
+/** Já vem com nome/e-mail/telefone embutidos - ver `MoradorCondominioResumoResponse` no
  * backend (elimina o `buscarMorador` por linha que a tela batia antes). Usada pela aba
  * Morador do cadastro de condomínio, paginada (pedido do Romulo: 15 por página, "pra não
  * listar todos de vez"). */
@@ -590,8 +596,8 @@ export type MoradorCondominioResumoResponse = {
   vinculoId: number;
   moradorId: number;
   nome: string;
-  cpf: string;
   email: string | null;
+  telefone: string | null;
   blocoId: number | null;
   numeroUnidade: string;
   situacao: Situacao;
@@ -625,18 +631,19 @@ export async function criarVinculoMorador(
   return parseOrThrow<MoradorCondominioResponse>(res);
 }
 
-/** Só corrige bloco/unidade - trocar de morador ou condomínio é um vínculo novo, não uma edição. */
+/** Só corrige bloco/unidade/e-mail/telefone - trocar de morador ou condomínio é um vínculo novo, não uma edição. */
 export async function atualizarVinculoMorador(
   token: string,
   id: number,
   blocoId: number | null,
   numeroUnidade: string,
   email: string,
+  telefone: string | null,
 ): Promise<MoradorCondominioResponse> {
   const res = await fetch(`${API_URL}/api/moradores-condominios/${id}`, {
     method: "PATCH",
     headers: authHeaders(token),
-    body: JSON.stringify({ blocoId, numeroUnidade, email }),
+    body: JSON.stringify({ blocoId, numeroUnidade, email, telefone }),
   });
   return parseOrThrow<MoradorCondominioResponse>(res);
 }
@@ -1333,7 +1340,6 @@ export type DemandaAcessoSigilosoResponse = {
   demandaId: number;
   tipoPessoa: "morador" | "funcionario";
   nome: string;
-  cpf: string;
 };
 
 export async function listarAcessoSigiloso(token: string, demandaId: number): Promise<DemandaAcessoSigilosoResponse[]> {
@@ -1361,13 +1367,16 @@ export async function listarVisualizacaoPorRegra(
 }
 
 /** Toda pessoa (morador ou funcionário) ativa no condomínio da demanda - alimenta a combo
- * de busca do "Gerenciar acesso" (`ComboPessoa`), pra escolher por nome/unidade/CPF em
- * vez de decorar o CPF. `unidade` só vem preenchida pra morador. */
+ * de busca do "Gerenciar acesso" (`ComboPessoa`), pra escolher por nome/unidade (CPF saiu
+ * do sistema, v177/LGPD - `pessoaId` é o identificador mandado de volta). `unidade`/
+ * `blocoNome` só vêm preenchidos pra morador - `blocoNome` null significa condomínio de
+ * casas (sem bloco), não null vira `"Nome (bloco - unidade)"`. */
 export type CandidatoAcessoResponse = {
-  cpf: string;
+  pessoaId: number;
   nome: string;
   tipoPessoa: "morador" | "funcionario";
   unidade: string | null;
+  blocoNome: string | null;
   perfil: FuncionarioPerfil | null;
   funcao: string | null;
 };
@@ -1379,17 +1388,17 @@ export async function listarCandidatosAcesso(token: string, demandaId: number): 
   return parseOrThrow<CandidatoAcessoResponse[]>(res);
 }
 
-/** Concede pelo CPF - o backend concede em todos os papéis (morador e/ou funcionário)
- * que a pessoa tiver vínculo ativo com o condomínio da demanda. */
+/** Concede pelo id da pessoa - o backend concede em todos os papéis (morador e/ou
+ * funcionário) que a pessoa tiver vínculo ativo com o condomínio da demanda. */
 export async function concederAcessoSigiloso(
   token: string,
   demandaId: number,
-  cpf: string,
+  pessoaId: number,
 ): Promise<DemandaAcessoSigilosoResponse[]> {
   const res = await fetch(`${API_URL}/api/demandas/${demandaId}/acesso-sigiloso`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ cpf }),
+    body: JSON.stringify({ pessoaId }),
   });
   return parseOrThrow<DemandaAcessoSigilosoResponse[]>(res);
 }
@@ -1414,7 +1423,6 @@ export type DemandaResponsavelResponse = {
   demandaId: number;
   funcionarioId: number;
   nome: string;
-  cpf: string;
   perfil: FuncionarioPerfil | null;
   funcao: string | null;
 };
@@ -1425,9 +1433,10 @@ export async function listarResponsaveis(token: string, demandaId: number): Prom
 }
 
 /** Funcionários ativos do condomínio da demanda - alimenta a combo de busca de "Atribuir
- * responsável" (`ComboPessoa`), pra escolher por nome/CPF em vez de decorar o CPF. */
+ * responsável" (`ComboPessoa`), pra escolher por nome (CPF saiu do sistema, v177/LGPD -
+ * `funcionarioId` é o identificador mandado de volta). */
 export type CandidatoResponsavelResponse = {
-  cpf: string;
+  funcionarioId: number;
   nome: string;
   perfil: FuncionarioPerfil | null;
   funcao: string | null;
@@ -1446,12 +1455,12 @@ export async function listarCandidatosResponsavel(
 export async function atribuirResponsavel(
   token: string,
   demandaId: number,
-  cpf: string,
+  funcionarioId: number,
 ): Promise<DemandaResponsavelResponse> {
   const res = await fetch(`${API_URL}/api/demandas/${demandaId}/responsaveis`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ cpf }),
+    body: JSON.stringify({ funcionarioId }),
   });
   return parseOrThrow<DemandaResponsavelResponse>(res);
 }
@@ -1822,10 +1831,10 @@ export type ConversaPrivadaDetalheResponse = {
 
 /** Funcionário COM LOGIN (perfil preenchido) do condomínio - alimenta a combo de busca de
  * destinatário POR NOME (pedido do Romulo: "vai ser difícil saber o cpf do funcionário").
- * `cpf` continua vindo (é o identificador mandado de volta em `criarConversaPrivada`), só
- * não é mais exibido - `perfil` entra no lugar do CPF na sugestão. */
+ * `funcionarioId` é o identificador mandado de volta em `criarConversaPrivada` (CPF saiu
+ * do sistema, v177/LGPD) - `perfil` entra na sugestão. */
 export type CandidatoDestinatarioResponse = {
-  cpf: string;
+  funcionarioId: number;
   nome: string;
   perfil: FuncionarioPerfil;
 };
@@ -1862,13 +1871,13 @@ export async function buscarConversaPrivada(token: string, id: number): Promise<
 
 export async function criarConversaPrivada(
   token: string,
-  destinatariosCpf: string[],
+  destinatariosId: number[],
   texto: string,
 ): Promise<ConversaPrivadaDetalheResponse> {
   const res = await fetch(`${API_URL}/api/conversas-privadas`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ destinatariosCpf, texto }),
+    body: JSON.stringify({ destinatariosId, texto }),
   });
   return parseOrThrow<ConversaPrivadaDetalheResponse>(res);
 }

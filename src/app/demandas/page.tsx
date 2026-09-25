@@ -44,7 +44,7 @@ import {
   VisualizadorPorRegraResponse,
 } from "@/lib/api";
 import { useSessaoObrigatoria } from "@/lib/use-sessao-obrigatoria";
-import { apenasDigitos, etapaVencida, etapaVigente } from "@/lib/format";
+import { etapaVencida, etapaVigente } from "@/lib/format";
 import { ehVideo } from "@/lib/imagem-upload";
 import { AppShell, EVENTO_ALERTAS_DEMANDAS } from "@/components/app-shell";
 import { Markdown } from "@/components/markdown";
@@ -118,8 +118,8 @@ const FORM_VAZIO = { titulo: "", descricao: "", sigilosa: false, identificarSoli
  * marcar/desmarcar sigilosa - checkbox direto no título, sem formulário de edição
  * separado. Quando sigilosa, só quem `podeGerenciarSigilo` (síndico/sub-síndico, ou o
  * funcionário que marcou) vê o link "Gerenciar acesso" - abre um painel pra indicar mais
- * gente (ou tirar quem já tinha sido indicado), buscando por nome/unidade/CPF numa combo
- * (`ComboPessoa`, ver `listarCandidatosAcesso`) em vez de precisar decorar o CPF - lista
+ * gente (ou tirar quem já tinha sido indicado), buscando por nome/unidade numa combo
+ * (`ComboPessoa`, ver `listarCandidatosAcesso`) - lista
  * todo mundo (morador ou funcionário) ativo no condomínio. O backend já filtra quem NEM
  * aparece na listagem pra quem não tem acesso (ver DemandaService.listar). Pra quem TEM
  * acesso, `#id` e título aparecem em vermelho e itálico (`d.sigilosa`) - reforço visual de
@@ -264,7 +264,7 @@ function DemandasPageInner() {
     Record<number, VisualizadorPorRegraResponse[]>
   >({});
   const [erroAcessoPorDemanda, setErroAcessoPorDemanda] = useState<Record<number, string>>({});
-  const [novoAcessoCpfPorDemanda, setNovoAcessoCpfPorDemanda] = useState<Record<number, string>>({});
+  const [novoAcessoIdPorDemanda, setNovoAcessoIdPorDemanda] = useState<Record<number, number | null>>({});
   const [salvandoAcessoId, setSalvandoAcessoId] = useState<number | null>(null);
 
   // Atribuir responsável (um ou mais funcionários) - mesmo padrão do acesso sigiloso
@@ -275,7 +275,7 @@ function DemandasPageInner() {
     Record<number, CandidatoResponsavelResponse[]>
   >({});
   const [erroResponsavelPorDemanda, setErroResponsavelPorDemanda] = useState<Record<number, string>>({});
-  const [novoResponsavelCpfPorDemanda, setNovoResponsavelCpfPorDemanda] = useState<Record<number, string>>({});
+  const [novoResponsavelIdPorDemanda, setNovoResponsavelIdPorDemanda] = useState<Record<number, number | null>>({});
   const [salvandoResponsavelId, setSalvandoResponsavelId] = useState<number | null>(null);
 
   const [colunasKanban, setColunasKanban] = useState<StatusKanbanResponse[] | null>(null);
@@ -931,17 +931,17 @@ function DemandasPageInner() {
   async function handleConcederAcesso(e: React.FormEvent, demandaId: number) {
     e.preventDefault();
     if (!sessao) return;
-    const cpf = novoAcessoCpfPorDemanda[demandaId] ?? "";
-    if (!cpf) {
+    const pessoaId = novoAcessoIdPorDemanda[demandaId] ?? null;
+    if (pessoaId === null) {
       setErroAcessoPorDemanda((atual) => ({ ...atual, [demandaId]: "Escolha alguém na busca antes de conceder." }));
       return;
     }
     setErroAcessoPorDemanda((atual) => ({ ...atual, [demandaId]: "" }));
     setSalvandoAcessoId(demandaId);
     try {
-      const concedidos = await concederAcessoSigiloso(sessao.token, demandaId, apenasDigitos(cpf));
+      const concedidos = await concederAcessoSigiloso(sessao.token, demandaId, pessoaId);
       setAcessosPorDemanda((atual) => ({ ...atual, [demandaId]: [...(atual[demandaId] ?? []), ...concedidos] }));
-      setNovoAcessoCpfPorDemanda((atual) => ({ ...atual, [demandaId]: "" }));
+      setNovoAcessoIdPorDemanda((atual) => ({ ...atual, [demandaId]: null }));
     } catch (err) {
       setErroAcessoPorDemanda((atual) => ({
         ...atual,
@@ -1001,8 +1001,8 @@ function DemandasPageInner() {
   async function handleAtribuirResponsavel(e: React.FormEvent, demandaId: number) {
     e.preventDefault();
     if (!sessao) return;
-    const cpf = novoResponsavelCpfPorDemanda[demandaId] ?? "";
-    if (!cpf) {
+    const funcionarioId = novoResponsavelIdPorDemanda[demandaId] ?? null;
+    if (funcionarioId === null) {
       setErroResponsavelPorDemanda((atual) => ({
         ...atual,
         [demandaId]: "Escolha alguém na busca antes de atribuir.",
@@ -1012,9 +1012,9 @@ function DemandasPageInner() {
     setErroResponsavelPorDemanda((atual) => ({ ...atual, [demandaId]: "" }));
     setSalvandoResponsavelId(demandaId);
     try {
-      const atribuido = await atribuirResponsavel(sessao.token, demandaId, apenasDigitos(cpf));
+      const atribuido = await atribuirResponsavel(sessao.token, demandaId, funcionarioId);
       setResponsaveisPorDemanda((atual) => ({ ...atual, [demandaId]: [...(atual[demandaId] ?? []), atribuido] }));
-      setNovoResponsavelCpfPorDemanda((atual) => ({ ...atual, [demandaId]: "" }));
+      setNovoResponsavelIdPorDemanda((atual) => ({ ...atual, [demandaId]: null }));
     } catch (err) {
       setErroResponsavelPorDemanda((atual) => ({
         ...atual,
@@ -1387,8 +1387,8 @@ function DemandasPageInner() {
                       <div className="min-w-0 flex-1">
                         <ComboPessoa
                           candidatos={candidatosAcessoPorDemanda[d.id] ?? null}
-                          onSelecionar={(cpf) => setNovoAcessoCpfPorDemanda((atual) => ({ ...atual, [d.id]: cpf }))}
-                          valorSelecionado={novoAcessoCpfPorDemanda[d.id] ?? ""}
+                          onSelecionar={(pessoaId) => setNovoAcessoIdPorDemanda((atual) => ({ ...atual, [d.id]: pessoaId }))}
+                          valorSelecionado={novoAcessoIdPorDemanda[d.id] ?? null}
                         />
                       </div>
                       <Button type="submit" disabled={salvandoAcessoId === d.id}>
@@ -1554,8 +1554,10 @@ function DemandasPageInner() {
                       <div className="min-w-0 flex-1">
                         <ComboFuncionario
                           candidatos={candidatosResponsavelPorDemanda[d.id] ?? null}
-                          onSelecionar={(cpf) => setNovoResponsavelCpfPorDemanda((atual) => ({ ...atual, [d.id]: cpf }))}
-                          valorSelecionado={novoResponsavelCpfPorDemanda[d.id] ?? ""}
+                          onSelecionar={(funcionarioId) =>
+                            setNovoResponsavelIdPorDemanda((atual) => ({ ...atual, [d.id]: funcionarioId }))
+                          }
+                          valorSelecionado={novoResponsavelIdPorDemanda[d.id] ?? null}
                         />
                       </div>
                       <Button type="submit" disabled={salvandoResponsavelId === d.id}>

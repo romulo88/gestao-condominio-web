@@ -15,9 +15,9 @@ import {
   atualizarVinculoMorador,
   AvisoResponse,
   BlocoResponse,
-  buscarFuncionarioPorCpf,
-  buscarMoradorPorCpf,
-  buscarPessoaPorCpf,
+  buscarFuncionarioPorEmail,
+  buscarMoradorPorEmail,
+  buscarPessoaPorEmail,
   CondominioResponse,
   CondominioTipo,
   criarAviso,
@@ -65,7 +65,7 @@ import {
   zerarSenhaVinculoMorador,
 } from "@/lib/api";
 import { useSessaoObrigatoria } from "@/lib/use-sessao-obrigatoria";
-import { apenasDigitos, formatarCnpj, formatarCpf } from "@/lib/format";
+import { apenasDigitos, formatarCnpj, formatarTelefone } from "@/lib/format";
 import { AppShell } from "@/components/app-shell";
 import { Markdown } from "@/components/markdown";
 import { MarkdownEditor } from "@/components/markdown-editor";
@@ -91,10 +91,14 @@ function formatarData(iso: string): string {
 }
 
 const FORM_VAZIO = { nome: "", cnpj: "", tipo: "apartamento" as CondominioTipo, quantidadeCasas: "" };
-const FUNCIONARIO_VAZIO = { cpf: "", nome: "", email: "", perfil: "" as FuncionarioPerfil | "", funcao: "" };
-const MORADOR_VAZIO = { cpf: "", nome: "", email: "", blocoId: "", numeroUnidade: "" };
+const FUNCIONARIO_VAZIO = { email: "", nome: "", telefone: "", perfil: "" as FuncionarioPerfil | "", funcao: "" };
+const MORADOR_VAZIO = { email: "", nome: "", telefone: "", blocoId: "", numeroUnidade: "" };
 
-// Tipos das linhas das tabelas Funcionário/Morador - já vêm com nome/CPF/e-mail/foto
+// E-mail é o novo identificador de pessoa (LGPD, v177) - regex simples só pra decidir
+// quando vale a pena disparar a busca debounced, a validação de verdade é do backend.
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Tipos das linhas das tabelas Funcionário/Morador - já vêm com nome/e-mail/telefone/foto
 // embutidos direto da página paginada (ver `listarPaginaFuncionarios`/`listarPaginaMoradores`),
 // sem precisar de um `buscarFuncionario`/`buscarMorador` por linha.
 type FuncionarioDoCondominio = FuncionarioCondominioResumoResponse;
@@ -152,15 +156,18 @@ export default function CondominiosPage() {
   const [totalItensFuncionario, setTotalItensFuncionario] = useState(0);
 
   const [novoFuncionario, setNovoFuncionario] = useState(FUNCIONARIO_VAZIO);
-  const [buscandoCpf, setBuscandoCpf] = useState(false);
-  // Preenchido quando o CPF já existe como pessoa - evita pedir nome/e-mail de novo.
+  // Pedido do Romulo (LGPD, v177): funcionário pode não ter e-mail - marcando isso, pula a
+  // busca e revela nome/telefone direto, sem exigir e-mail.
+  const [funcionarioSemEmail, setFuncionarioSemEmail] = useState(false);
+  const [buscandoEmail, setBuscandoEmail] = useState(false);
+  // Preenchido quando o e-mail já existe como pessoa - evita pedir nome de novo.
   const [pessoaEncontrada, setPessoaEncontrada] = useState<{ id: number; nome: string; email: string | null } | null>(
     null,
   );
-  // Preenchido quando o CPF já é funcionário (nesse ou em outro condomínio) - nesse caso
+  // Preenchido quando o e-mail já é funcionário (nesse ou em outro condomínio) - nesse caso
   // não recria o papel de funcionário, só vincula a este condomínio.
   const [funcionarioEncontrado, setFuncionarioEncontrado] = useState<{ id: number } | null>(null);
-  const [erroBuscaCpf, setErroBuscaCpf] = useState<string | null>(null);
+  const [erroBuscaEmail, setErroBuscaEmail] = useState<string | null>(null);
   const [salvandoFuncionario, setSalvandoFuncionario] = useState(false);
 
   // Mesmo padrão da edição de morador: reaproveita o formulário "Adicionar funcionário"
@@ -197,18 +204,18 @@ export default function CondominiosPage() {
   const [zerandoSenhaId, setZerandoSenhaId] = useState<number | null>(null);
 
   const [novoMorador, setNovoMorador] = useState(MORADOR_VAZIO);
-  const [buscandoCpfMorador, setBuscandoCpfMorador] = useState(false);
-  // Preenchido quando o CPF já existe como pessoa - evita pedir nome de novo (o e-mail só
-  // é pulado se essa pessoa já tiver um - morador exige e-mail, diferente de funcionário).
+  const [buscandoEmailMorador, setBuscandoEmailMorador] = useState(false);
+  // Preenchido quando o e-mail já existe como pessoa - evita pedir nome de novo (morador
+  // sempre exige e-mail, diferente de funcionário).
   const [pessoaEncontradaMorador, setPessoaEncontradaMorador] = useState<{
     id: number;
     nome: string;
     email: string | null;
   } | null>(null);
-  // Preenchido quando o CPF já é morador (nesse ou em outro condomínio) - nesse caso não
+  // Preenchido quando o e-mail já é morador (nesse ou em outro condomínio) - nesse caso não
   // recria o papel de morador, só vincula a este condomínio.
   const [moradorEncontrado, setMoradorEncontrado] = useState<{ id: number } | null>(null);
-  const [erroBuscaCpfMorador, setErroBuscaCpfMorador] = useState<string | null>(null);
+  const [erroBuscaEmailMorador, setErroBuscaEmailMorador] = useState<string | null>(null);
   const [salvandoMorador, setSalvandoMorador] = useState(false);
   const [blocosCondominio, setBlocosCondominio] = useState<BlocoResponse[] | null>(null);
   const [erroBlocos, setErroBlocos] = useState<string | null>(null);
@@ -475,30 +482,30 @@ export default function CondominiosPage() {
     };
   }, [sessao, condominioIdAtual, aba]);
 
-  // Assim que o CPF fica completo (11 dígitos), busca se já existe pessoa/funcionário
-  // com esse CPF - é isso que evita pedir nome de novo pra quem já está cadastrado.
+  // Assim que o e-mail digitado parece válido, busca (debounced) se já existe
+  // pessoa/funcionário com esse e-mail - é isso que evita pedir nome de novo pra quem já
+  // está cadastrado. Não roda quando "Funcionário não tem e-mail" está marcado (LGPD,
+  // v177 - sem e-mail não tem como procurar).
   useEffect(() => {
-    if (!sessao || funcionarioEditandoId !== null) return;
-    const cpfDigitos = apenasDigitos(novoFuncionario.cpf);
+    if (!sessao || funcionarioEditandoId !== null || funcionarioSemEmail) return;
+    const emailDigitado = novoFuncionario.email.trim();
     let cancelado = false;
 
-    (async () => {
-      if (cpfDigitos.length !== 11) {
+    const timer = setTimeout(async () => {
+      if (!EMAIL_REGEX.test(emailDigitado)) {
         if (!cancelado) {
           setPessoaEncontrada(null);
           setFuncionarioEncontrado(null);
-          setErroBuscaCpf(null);
+          setErroBuscaEmail(null);
         }
         return;
       }
-      if (!cancelado) {
-        setBuscandoCpf(true);
-        setErroBuscaCpf(null);
-      }
+      setBuscandoEmail(true);
+      setErroBuscaEmail(null);
       try {
         const [pessoa, funcionario] = await Promise.all([
-          buscarPessoaPorCpf(sessao.token, cpfDigitos),
-          buscarFuncionarioPorCpf(sessao.token, cpfDigitos),
+          buscarPessoaPorEmail(sessao.token, emailDigitado),
+          buscarFuncionarioPorEmail(sessao.token, emailDigitado),
         ]);
         if (!cancelado) {
           setPessoaEncontrada(pessoa);
@@ -506,46 +513,45 @@ export default function CondominiosPage() {
         }
       } catch (err) {
         // Importante não deixar isso passar em silêncio como "pessoa não encontrada" -
-        // uma falha de rede/servidor é bem diferente de "esse CPF é novo".
+        // uma falha de rede/servidor é bem diferente de "esse e-mail é novo".
         if (!cancelado) {
           setPessoaEncontrada(null);
           setFuncionarioEncontrado(null);
-          setErroBuscaCpf(err instanceof Error ? err.message : "Falha ao verificar esse CPF.");
+          setErroBuscaEmail(err instanceof Error ? err.message : "Falha ao verificar esse e-mail.");
         }
       } finally {
-        if (!cancelado) setBuscandoCpf(false);
+        if (!cancelado) setBuscandoEmail(false);
       }
-    })();
+    }, 400);
 
     return () => {
       cancelado = true;
+      clearTimeout(timer);
     };
-  }, [sessao, novoFuncionario.cpf, funcionarioEditandoId]);
+  }, [sessao, novoFuncionario.email, funcionarioEditandoId, funcionarioSemEmail]);
 
-  // Mesma ideia da busca de funcionário acima, pro CPF do morador - não roda em modo
-  // edição (o CPF já é de uma pessoa confirmada, não precisa procurar de novo).
+  // Mesma ideia da busca de funcionário acima, pro e-mail do morador - não roda em modo
+  // edição (o e-mail já é de uma pessoa confirmada, não precisa procurar de novo).
   useEffect(() => {
     if (!sessao || moradorEditandoId !== null) return;
-    const cpfDigitos = apenasDigitos(novoMorador.cpf);
+    const emailDigitado = novoMorador.email.trim();
     let cancelado = false;
 
-    (async () => {
-      if (cpfDigitos.length !== 11) {
+    const timer = setTimeout(async () => {
+      if (!EMAIL_REGEX.test(emailDigitado)) {
         if (!cancelado) {
           setPessoaEncontradaMorador(null);
           setMoradorEncontrado(null);
-          setErroBuscaCpfMorador(null);
+          setErroBuscaEmailMorador(null);
         }
         return;
       }
-      if (!cancelado) {
-        setBuscandoCpfMorador(true);
-        setErroBuscaCpfMorador(null);
-      }
+      setBuscandoEmailMorador(true);
+      setErroBuscaEmailMorador(null);
       try {
         const [pessoa, morador] = await Promise.all([
-          buscarPessoaPorCpf(sessao.token, cpfDigitos),
-          buscarMoradorPorCpf(sessao.token, cpfDigitos),
+          buscarPessoaPorEmail(sessao.token, emailDigitado),
+          buscarMoradorPorEmail(sessao.token, emailDigitado),
         ]);
         if (!cancelado) {
           setPessoaEncontradaMorador(pessoa);
@@ -555,17 +561,18 @@ export default function CondominiosPage() {
         if (!cancelado) {
           setPessoaEncontradaMorador(null);
           setMoradorEncontrado(null);
-          setErroBuscaCpfMorador(err instanceof Error ? err.message : "Falha ao verificar esse CPF.");
+          setErroBuscaEmailMorador(err instanceof Error ? err.message : "Falha ao verificar esse e-mail.");
         }
       } finally {
-        if (!cancelado) setBuscandoCpfMorador(false);
+        if (!cancelado) setBuscandoEmailMorador(false);
       }
-    })();
+    }, 400);
 
     return () => {
       cancelado = true;
+      clearTimeout(timer);
     };
-  }, [sessao, novoMorador.cpf, moradorEditandoId]);
+  }, [sessao, novoMorador.email, moradorEditandoId]);
 
   const condominiosFiltrados = useMemo(() => {
     if (!condominios) return condominios;
@@ -698,8 +705,8 @@ export default function CondominiosPage() {
       } else {
         const funcionario = await criarFuncionario(sessao.token, {
           nome: nomeFuncionario,
-          cpf: apenasDigitos(novoFuncionario.cpf),
-          email: pessoaEncontrada?.email ?? (novoFuncionario.email || null),
+          email: funcionarioSemEmail ? null : pessoaEncontrada?.email ?? (novoFuncionario.email || null),
+          telefone: apenasDigitos(novoFuncionario.telefone) || null,
         });
         funcionarioId = funcionario.id;
       }
@@ -710,6 +717,7 @@ export default function CondominiosPage() {
       // em qualquer posição, ou fora da página atual) - reexecuta a busca paginada.
       recarregarPaginaFuncionarios();
       setNovoFuncionario(FUNCIONARIO_VAZIO);
+      setFuncionarioSemEmail(false);
       setPessoaEncontrada(null);
       setFuncionarioEncontrado(null);
     } catch (err) {
@@ -720,15 +728,15 @@ export default function CondominiosPage() {
   }
 
   /** Preenche o mesmo formulário "Adicionar funcionário" com o registro escolhido, em vez
-   * de um formulário separado - CPF/nome ficam travados (não é tela pra trocar de
-   * pessoa), mas e-mail e perfil ficam editáveis de verdade. Mesmo padrão de
+   * de um formulário separado - e-mail/nome ficam travados (não é tela pra trocar de
+   * pessoa), mas telefone e perfil ficam editáveis de verdade. Mesmo padrão de
    * `abrirEdicaoMorador`. */
   function abrirEdicaoFuncionario(f: FuncionarioDoCondominio) {
     setFuncionarioEditandoId(f.vinculoId);
     setNovoFuncionario({
-      cpf: formatarCpf(f.cpf),
-      nome: f.nome,
       email: f.email ?? "",
+      nome: f.nome,
+      telefone: formatarTelefone(f.telefone),
       perfil: f.perfil ?? "",
       funcao: f.funcao ?? "",
     });
@@ -740,6 +748,7 @@ export default function CondominiosPage() {
   function cancelarEdicaoFuncionario() {
     setFuncionarioEditandoId(null);
     setNovoFuncionario(FUNCIONARIO_VAZIO);
+    setFuncionarioSemEmail(false);
     setEmailBloqueadoFuncionario(false);
     setErroFuncionarios(null);
   }
@@ -752,10 +761,18 @@ export default function CondominiosPage() {
     try {
       const perfil = novoFuncionario.perfil || null;
       const funcao = novoFuncionario.funcao.trim() || null;
-      await atualizarVinculoFuncionario(sessao.token, funcionarioEditandoId, perfil, novoFuncionario.email, funcao);
+      const telefone = apenasDigitos(novoFuncionario.telefone) || null;
+      await atualizarVinculoFuncionario(
+        sessao.token,
+        funcionarioEditandoId,
+        perfil,
+        novoFuncionario.email,
+        telefone,
+        funcao,
+      );
       setFuncionarios((atual) =>
         (atual ?? []).map((f) =>
-          f.vinculoId === funcionarioEditandoId ? { ...f, perfil, funcao, email: novoFuncionario.email } : f,
+          f.vinculoId === funcionarioEditandoId ? { ...f, perfil, funcao, email: novoFuncionario.email, telefone } : f,
         ),
       );
       cancelarEdicaoFuncionario();
@@ -843,7 +860,7 @@ export default function CondominiosPage() {
     try {
       await zerarSenhaVinculoFuncionario(sessao.token, f.vinculoId);
       window.alert(
-        `Senha de "${f.nome}" zerada - um e-mail foi enviado pro endereço cadastrado avisando a pessoa. Ela precisa ir em "Esqueceu sua senha?" na tela de login (informando CPF e e-mail) pra receber o código e definir a senha nova.`,
+        `Senha de "${f.nome}" zerada - um e-mail foi enviado pro endereço cadastrado avisando a pessoa. Ela precisa ir em "Esqueceu sua senha?" na tela de login (informando o e-mail) pra receber o código e definir a senha nova.`,
       );
     } catch (err) {
       setErroLinhaFuncionario({
@@ -868,8 +885,8 @@ export default function CondominiosPage() {
       } else {
         const morador = await criarMorador(sessao.token, {
           nome: nomeMorador,
-          cpf: apenasDigitos(novoMorador.cpf),
           email: pessoaEncontradaMorador?.email ?? novoMorador.email,
+          telefone: apenasDigitos(novoMorador.telefone) || null,
         });
         moradorId = morador.id;
       }
@@ -888,14 +905,14 @@ export default function CondominiosPage() {
   }
 
   /** Preenche o mesmo formulário "Adicionar morador" com o registro escolhido, em vez de
-   * editar inline na linha - CPF/nome ficam travados (não é tela pra trocar de pessoa),
-   * mas e-mail e unidade/bloco ficam editáveis de verdade. */
+   * editar inline na linha - e-mail/nome ficam travados (não é tela pra trocar de pessoa),
+   * mas telefone e unidade/bloco ficam editáveis de verdade. */
   function abrirEdicaoMorador(m: MoradorDoCondominio) {
     setMoradorEditandoId(m.vinculoId);
     setNovoMorador({
-      cpf: formatarCpf(m.cpf),
-      nome: m.nome,
       email: m.email ?? "",
+      nome: m.nome,
+      telefone: formatarTelefone(m.telefone),
       blocoId: m.blocoId ? String(m.blocoId) : "",
       numeroUnidade: m.numeroUnidade,
     });
@@ -918,11 +935,19 @@ export default function CondominiosPage() {
     setSalvandoMorador(true);
     try {
       const blocoId = novoMorador.blocoId ? Number(novoMorador.blocoId) : null;
-      await atualizarVinculoMorador(sessao.token, moradorEditandoId, blocoId, novoMorador.numeroUnidade, novoMorador.email);
+      const telefone = apenasDigitos(novoMorador.telefone) || null;
+      await atualizarVinculoMorador(
+        sessao.token,
+        moradorEditandoId,
+        blocoId,
+        novoMorador.numeroUnidade,
+        novoMorador.email,
+        telefone,
+      );
       setMoradores((atual) =>
         (atual ?? []).map((m) =>
           m.vinculoId === moradorEditandoId
-            ? { ...m, blocoId, numeroUnidade: novoMorador.numeroUnidade, email: novoMorador.email }
+            ? { ...m, blocoId, numeroUnidade: novoMorador.numeroUnidade, email: novoMorador.email, telefone }
             : m,
         ),
       );
@@ -992,7 +1017,7 @@ export default function CondominiosPage() {
     try {
       await zerarSenhaVinculoMorador(sessao.token, m.vinculoId);
       window.alert(
-        `Senha de "${m.nome}" zerada - um e-mail foi enviado pro endereço cadastrado avisando a pessoa. Ela precisa ir em "Esqueceu sua senha?" na tela de login (informando CPF e e-mail) pra receber o código e definir a senha nova.`,
+        `Senha de "${m.nome}" zerada - um e-mail foi enviado pro endereço cadastrado avisando a pessoa. Ela precisa ir em "Esqueceu sua senha?" na tela de login (informando o e-mail) pra receber o código e definir a senha nova.`,
       );
     } catch (err) {
       setErroLinhaMorador({
@@ -1501,8 +1526,8 @@ export default function CondominiosPage() {
   const podeCriarMensagemRapida = ehAdministrador || (ehFuncionario && sessao.condominioId === condominioIdAtual);
   const podeCriarBloco = ehAdministrador || (ehFuncionario && sessao.condominioId === condominioIdAtual);
   const abaCondominioSalvo = typeof form === "number";
-  const cpfCompleto = apenasDigitos(novoFuncionario.cpf).length === 11;
-  const cpfCompletoMorador = apenasDigitos(novoMorador.cpf).length === 11;
+  const emailValidoFuncionario = EMAIL_REGEX.test(novoFuncionario.email.trim());
+  const emailValidoMorador = EMAIL_REGEX.test(novoMorador.email.trim());
 
   return (
     <AppShell sessao={sessao}>
@@ -1773,25 +1798,61 @@ export default function CondominiosPage() {
                     />
                   )}
 
-                  <Input
-                    required
-                    placeholder="CPF"
-                    value={novoFuncionario.cpf}
-                    onChange={(e) => setNovoFuncionario((f) => ({ ...f, cpf: formatarCpf(e.target.value) }))}
-                    maxLength={14}
-                    disabled={funcionarioEditandoId !== null}
-                  />
+                  {/* E-mail é o primeiro campo (pedido do Romulo, LGPD v177) - digitar um
+                      e-mail já cadastrado associa a pessoa existente ao condomínio; um novo
+                      revela nome/telefone pra cadastrar. "Funcionário não tem e-mail" pula a
+                      busca de propósito - sem e-mail não tem como saber se a pessoa já existe
+                      (efeito colateral aceito, ver HANDOFF.md). */}
+                  {funcionarioEditandoId === null && (
+                    <label className="flex items-center gap-2 text-xs text-slate-500">
+                      <input
+                        type="checkbox"
+                        checked={funcionarioSemEmail}
+                        onChange={(e) => {
+                          setFuncionarioSemEmail(e.target.checked);
+                          setNovoFuncionario((f) => ({ ...f, email: "" }));
+                          setPessoaEncontrada(null);
+                          setFuncionarioEncontrado(null);
+                          setErroBuscaEmail(null);
+                        }}
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      Funcionário não tem e-mail
+                    </label>
+                  )}
+
+                  {!(funcionarioEditandoId === null && funcionarioSemEmail) && (
+                    <div>
+                      <Input
+                        required={novoFuncionario.perfil !== ""}
+                        type="email"
+                        placeholder={novoFuncionario.perfil !== "" ? "E-mail" : "E-mail (opcional sem perfil)"}
+                        value={novoFuncionario.email}
+                        onChange={(e) => setNovoFuncionario((f) => ({ ...f, email: e.target.value }))}
+                        disabled={funcionarioEditandoId !== null && emailBloqueadoFuncionario}
+                      />
+                      {funcionarioEditandoId !== null && emailBloqueadoFuncionario && (
+                        <p className="mt-1 text-xs text-slate-400">
+                          Só administrador pode trocar o e-mail de quem já tem um cadastrado.
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {funcionarioEditandoId !== null ? (
-                    // Nome fica só pra contexto (quem estou editando) - CPF/nome não mudam
-                    // por essa tela, trocar de pessoa é criar um vínculo novo.
+                    // Nome fica só pra contexto (quem estou editando) - e-mail/nome não
+                    // mudam por essa tela, trocar de pessoa é criar um vínculo novo.
                     <Input value={novoFuncionario.nome} disabled />
                   ) : (
                     <>
-                      {buscandoCpf && <p className="text-xs text-slate-400">Buscando...</p>}
-                      {erroBuscaCpf && <p className="text-xs text-red-600">{erroBuscaCpf}</p>}
+                      {!funcionarioSemEmail && buscandoEmail && (
+                        <p className="text-xs text-slate-400">Buscando...</p>
+                      )}
+                      {!funcionarioSemEmail && erroBuscaEmail && (
+                        <p className="text-xs text-red-600">{erroBuscaEmail}</p>
+                      )}
 
-                      {cpfCompleto && !buscandoCpf && pessoaEncontrada && (
+                      {!funcionarioSemEmail && emailValidoFuncionario && !buscandoEmail && pessoaEncontrada && (
                         <div className="rounded-lg bg-slate-50 px-4 py-3 text-sm">
                           <p className="text-slate-900">{pessoaEncontrada.nome}</p>
                           <p className="text-xs text-slate-400">
@@ -1802,44 +1863,33 @@ export default function CondominiosPage() {
                         </div>
                       )}
 
-                      {cpfCompleto && !buscandoCpf && !erroBuscaCpf && !pessoaEncontrada && (
-                        <Input
-                          required
-                          placeholder="Nome"
-                          value={novoFuncionario.nome}
-                          onChange={(e) => setNovoFuncionario((f) => ({ ...f, nome: e.target.value }))}
-                        />
+                      {(funcionarioSemEmail ||
+                        (emailValidoFuncionario && !buscandoEmail && !erroBuscaEmail && !pessoaEncontrada)) && (
+                        <>
+                          <Input
+                            required
+                            placeholder="Nome"
+                            value={novoFuncionario.nome}
+                            onChange={(e) => setNovoFuncionario((f) => ({ ...f, nome: e.target.value }))}
+                          />
+                          <Input
+                            placeholder="Telefone (opcional)"
+                            value={novoFuncionario.telefone}
+                            onChange={(e) =>
+                              setNovoFuncionario((f) => ({ ...f, telefone: formatarTelefone(e.target.value) }))
+                            }
+                          />
+                        </>
                       )}
                     </>
                   )}
 
-                  {/* E-mail só é obrigatório quando o funcionário tem perfil (acesso ao
-                      sistema) - é o que identifica a pessoa no fluxo de "Esqueci minha
-                      senha", mas quem é "Sem perfil" nunca loga, então não precisa. Campo
-                      continua opcional no banco (pedido do Romulo) - o `required` aqui só
-                      reflete a regra de negócio, não uma obrigatoriedade de schema. Em
-                      modo cadastro, só pula mostrar se a pessoa já tiver um e-mail (ex: já
-                      é morador); em modo edição, sempre editável - a menos que já tenha
-                      e-mail cadastrado e quem está editando não seja administrador
-                      (`emailBloqueadoFuncionario` - o backend já reforça essa mesma trava,
-                      isso aqui só evita a pessoa preencher e levar um erro na hora de salvar). */}
-                  {(funcionarioEditandoId !== null ||
-                    (cpfCompleto && !buscandoCpf && !erroBuscaCpf && !pessoaEncontrada?.email)) && (
-                    <div>
-                      <Input
-                        required={novoFuncionario.perfil !== ""}
-                        type="email"
-                        disabled={emailBloqueadoFuncionario}
-                        placeholder={novoFuncionario.perfil !== "" ? "E-mail" : "E-mail (opcional sem perfil)"}
-                        value={novoFuncionario.email}
-                        onChange={(e) => setNovoFuncionario((f) => ({ ...f, email: e.target.value }))}
-                      />
-                      {emailBloqueadoFuncionario && (
-                        <p className="mt-1 text-xs text-slate-400">
-                          Só administrador pode trocar o e-mail de quem já tem um cadastrado.
-                        </p>
-                      )}
-                    </div>
+                  {funcionarioEditandoId !== null && (
+                    <Input
+                      placeholder="Telefone (opcional)"
+                      value={novoFuncionario.telefone}
+                      onChange={(e) => setNovoFuncionario((f) => ({ ...f, telefone: formatarTelefone(e.target.value) }))}
+                    />
                   )}
 
                   <select
@@ -1898,7 +1948,9 @@ export default function CondominiosPage() {
                       type="submit"
                       disabled={
                         salvandoFuncionario ||
-                        (funcionarioEditandoId === null && (!cpfCompleto || buscandoCpf || !!erroBuscaCpf))
+                        (funcionarioEditandoId === null &&
+                          !funcionarioSemEmail &&
+                          (!emailValidoFuncionario || buscandoEmail || !!erroBuscaEmail))
                       }
                     >
                       {funcionarioEditandoId !== null
@@ -1919,7 +1971,7 @@ export default function CondominiosPage() {
 
               <div className="border-t border-slate-100 pt-4">
                 <Input
-                  placeholder="Buscar funcionário por nome ou CPF"
+                  placeholder="Buscar funcionário por nome"
                   value={buscaFuncionario}
                   onChange={(e) => setBuscaFuncionario(e.target.value)}
                 />
@@ -1942,7 +1994,8 @@ export default function CondominiosPage() {
                     <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                       {podeEditarCondominioAtual && <th className="py-2 font-medium">Ações</th>}
                       <th className="py-2 font-medium">Nome</th>
-                      <th className="py-2 font-medium">CPF</th>
+                      <th className="py-2 font-medium">E-mail</th>
+                      <th className="py-2 font-medium">Telefone</th>
                       <th className="py-2 font-medium">Perfil</th>
                       <th className="py-2 font-medium">Situação</th>
                     </tr>
@@ -1984,7 +2037,8 @@ export default function CondominiosPage() {
                           </td>
                         )}
                         <td className="py-2 text-slate-900">{f.nome}</td>
-                        <td className="py-2 text-slate-500">{formatarCpf(f.cpf)}</td>
+                        <td className="py-2 text-slate-500">{f.email ?? "—"}</td>
+                        <td className="py-2 text-slate-500">{f.telefone ? formatarTelefone(f.telefone) : "—"}</td>
                         <td className="py-2 text-slate-500">
                           {f.perfil ? PERFIL_LABEL[f.perfil] : f.funcao || "Sem perfil"}
                         </td>
@@ -2042,25 +2096,43 @@ export default function CondominiosPage() {
                     {moradorEditandoId !== null ? "Editar morador" : "Adicionar morador"}
                   </p>
 
-                  <Input
-                    required
-                    placeholder="CPF"
-                    value={novoMorador.cpf}
-                    onChange={(e) => setNovoMorador((m) => ({ ...m, cpf: formatarCpf(e.target.value) }))}
-                    maxLength={14}
-                    disabled={moradorEditandoId !== null}
-                  />
+                  {/* E-mail é o primeiro campo (pedido do Romulo, LGPD v177) - morador
+                      sempre precisa ter e-mail (diferente de funcionário). Digitar um
+                      e-mail já cadastrado associa a pessoa existente ao condomínio; um
+                      novo revela nome/telefone pra cadastrar. */}
+                  <div>
+                    <Input
+                      required
+                      type="email"
+                      placeholder="E-mail"
+                      value={novoMorador.email}
+                      onChange={(e) => setNovoMorador((m) => ({ ...m, email: e.target.value }))}
+                      disabled={moradorEditandoId !== null && emailBloqueadoMorador}
+                    />
+                    {moradorEditandoId !== null && emailBloqueadoMorador && (
+                      <p className="mt-1 text-xs text-slate-400">
+                        Só administrador pode trocar o e-mail de quem já tem um cadastrado.
+                      </p>
+                    )}
+                  </div>
 
                   {moradorEditandoId !== null ? (
-                    // Nome fica só pra contexto (quem estou editando) - CPF/nome não mudam
-                    // por essa tela, trocar de pessoa é criar um vínculo novo.
-                    <Input value={novoMorador.nome} disabled />
+                    // Nome fica só pra contexto (quem estou editando) - e-mail/nome não
+                    // mudam por essa tela, trocar de pessoa é criar um vínculo novo.
+                    <>
+                      <Input value={novoMorador.nome} disabled />
+                      <Input
+                        placeholder="Telefone (opcional)"
+                        value={novoMorador.telefone}
+                        onChange={(e) => setNovoMorador((m) => ({ ...m, telefone: formatarTelefone(e.target.value) }))}
+                      />
+                    </>
                   ) : (
                     <>
-                      {buscandoCpfMorador && <p className="text-xs text-slate-400">Buscando...</p>}
-                      {erroBuscaCpfMorador && <p className="text-xs text-red-600">{erroBuscaCpfMorador}</p>}
+                      {buscandoEmailMorador && <p className="text-xs text-slate-400">Buscando...</p>}
+                      {erroBuscaEmailMorador && <p className="text-xs text-red-600">{erroBuscaEmailMorador}</p>}
 
-                      {cpfCompletoMorador && !buscandoCpfMorador && pessoaEncontradaMorador && (
+                      {emailValidoMorador && !buscandoEmailMorador && pessoaEncontradaMorador && (
                         <div className="rounded-lg bg-slate-50 px-4 py-3 text-sm">
                           <p className="text-slate-900">{pessoaEncontradaMorador.nome}</p>
                           <p className="text-xs text-slate-400">
@@ -2071,39 +2143,22 @@ export default function CondominiosPage() {
                         </div>
                       )}
 
-                      {cpfCompletoMorador && !buscandoCpfMorador && !erroBuscaCpfMorador && !pessoaEncontradaMorador && (
-                        <Input
-                          required
-                          placeholder="Nome"
-                          value={novoMorador.nome}
-                          onChange={(e) => setNovoMorador((m) => ({ ...m, nome: e.target.value }))}
-                        />
+                      {emailValidoMorador && !buscandoEmailMorador && !erroBuscaEmailMorador && !pessoaEncontradaMorador && (
+                        <>
+                          <Input
+                            required
+                            placeholder="Nome"
+                            value={novoMorador.nome}
+                            onChange={(e) => setNovoMorador((m) => ({ ...m, nome: e.target.value }))}
+                          />
+                          <Input
+                            placeholder="Telefone (opcional)"
+                            value={novoMorador.telefone}
+                            onChange={(e) => setNovoMorador((m) => ({ ...m, telefone: formatarTelefone(e.target.value) }))}
+                          />
+                        </>
                       )}
                     </>
-                  )}
-
-                  {/* E-mail é obrigatório pro papel de morador (diferente de funcionário) - em
-                      modo cadastro, só pula pedir se a pessoa já tiver um (ex: já é
-                      funcionário); em modo edição, sempre editável - a menos que já tenha
-                      e-mail cadastrado e quem está editando não seja administrador
-                      (`emailBloqueadoMorador`, mesma trava de `emailBloqueadoFuncionario`). */}
-                  {(moradorEditandoId !== null ||
-                    (cpfCompletoMorador && !buscandoCpfMorador && !erroBuscaCpfMorador && !pessoaEncontradaMorador?.email)) && (
-                    <div>
-                      <Input
-                        required
-                        type="email"
-                        disabled={emailBloqueadoMorador}
-                        placeholder="E-mail"
-                        value={novoMorador.email}
-                        onChange={(e) => setNovoMorador((m) => ({ ...m, email: e.target.value }))}
-                      />
-                      {emailBloqueadoMorador && (
-                        <p className="mt-1 text-xs text-slate-400">
-                          Só administrador pode trocar o e-mail de quem já tem um cadastrado.
-                        </p>
-                      )}
-                    </div>
                   )}
 
                   {campos.tipo === "apartamento" && (
@@ -2150,7 +2205,7 @@ export default function CondominiosPage() {
                       disabled={
                         salvandoMorador ||
                         (moradorEditandoId === null &&
-                          (!cpfCompletoMorador || buscandoCpfMorador || !!erroBuscaCpfMorador))
+                          (!emailValidoMorador || buscandoEmailMorador || !!erroBuscaEmailMorador))
                       }
                     >
                       {moradorEditandoId !== null
@@ -2169,7 +2224,7 @@ export default function CondominiosPage() {
 
               <div className="border-t border-slate-100 pt-4">
                 <Input
-                  placeholder="Buscar morador por nome ou CPF"
+                  placeholder="Buscar morador por nome"
                   value={buscaMorador}
                   onChange={(e) => setBuscaMorador(e.target.value)}
                 />
@@ -2190,7 +2245,8 @@ export default function CondominiosPage() {
                     <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                       {podeEditarCondominioAtual && <th className="py-2 font-medium">Ações</th>}
                       <th className="py-2 font-medium">Nome</th>
-                      <th className="py-2 font-medium">CPF</th>
+                      <th className="py-2 font-medium">E-mail</th>
+                      <th className="py-2 font-medium">Telefone</th>
                       <th className="py-2 font-medium">Unidade</th>
                       <th className="py-2 font-medium">Situação</th>
                     </tr>
@@ -2232,7 +2288,8 @@ export default function CondominiosPage() {
                           </td>
                         )}
                         <td className="py-2 text-slate-900">{m.nome}</td>
-                        <td className="py-2 text-slate-500">{formatarCpf(m.cpf)}</td>
+                        <td className="py-2 text-slate-500">{m.email ?? "—"}</td>
+                        <td className="py-2 text-slate-500">{m.telefone ? formatarTelefone(m.telefone) : "—"}</td>
                         <td className="py-2 text-slate-500">
                           {m.blocoId
                             ? `${blocosCondominio?.find((b) => b.id === m.blocoId)?.nome ?? "Bloco " + m.blocoId} — `

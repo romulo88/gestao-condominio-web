@@ -97,11 +97,13 @@ export default function MensagensPrivadasPage() {
   }
 
   function adicionarDestinatario(candidato: CandidatoDestinatarioResponse) {
-    setDestinatarios((atual) => (atual.some((d) => d.cpf === candidato.cpf) ? atual : [...atual, candidato]));
+    setDestinatarios((atual) =>
+      atual.some((d) => d.funcionarioId === candidato.funcionarioId) ? atual : [...atual, candidato],
+    );
   }
 
-  function removerDestinatario(cpf: string) {
-    setDestinatarios((atual) => atual.filter((d) => d.cpf !== cpf));
+  function removerDestinatario(funcionarioId: number) {
+    setDestinatarios((atual) => atual.filter((d) => d.funcionarioId !== funcionarioId));
   }
 
   async function handleCriarConversa(e: React.FormEvent) {
@@ -112,7 +114,7 @@ export default function MensagensPrivadasPage() {
     try {
       const criada = await criarConversaPrivada(
         sessao.token,
-        destinatarios.map((d) => d.cpf),
+        destinatarios.map((d) => d.funcionarioId),
         textoNovaConversa,
       );
       setFormNovaAberto(false);
@@ -382,13 +384,13 @@ export default function MensagensPrivadasPage() {
                   <div className="mt-2 flex flex-wrap gap-2">
                     {destinatarios.map((d) => (
                       <span
-                        key={d.cpf}
+                        key={d.funcionarioId}
                         className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700"
                       >
                         {d.nome}
                         <button
                           type="button"
-                          onClick={() => removerDestinatario(d.cpf)}
+                          onClick={() => removerDestinatario(d.funcionarioId)}
                           className="text-slate-400 hover:text-slate-700"
                         >
                           ✕

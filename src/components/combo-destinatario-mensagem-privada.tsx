@@ -16,10 +16,9 @@ function rotulo(c: CandidatoDestinatarioResponse): string {
 }
 
 /** Combo de busca por NOME pra endereçar uma mensagem privada (pedido do Romulo: "vai ser
- * difícil saber o cpf do funcionário") - diferente do `ComboFuncionario` de "Atribuir
- * responsável" (que também busca por CPF e mostra o CPF na sugestão), aqui a sugestão
- * mostra o PERFIL (síndico/sub-síndico/...) no lugar do CPF - informação bem mais útil
- * pra identificar quem é quem. Limpa o próprio texto assim que seleciona - o pai só
+ * difícil saber o cpf do funcionário") - a sugestão mostra o PERFIL (síndico/sub-síndico/
+ * ...), informação bem mais útil pra identificar quem é quem (CPF saiu do sistema, v177/
+ * LGPD). Limpa o próprio texto assim que seleciona - o pai só
  * acumula a lista de destinatários antes do primeiro envio, sem um passo de "confirmar"
  * separado (diferente do fluxo de responsável), então não precisa do truque de
  * `valorSelecionado` controlado de fora. */
@@ -55,7 +54,7 @@ export function ComboDestinatarioMensagemPrivada({ candidatos, onSelecionar, pla
       {aberto && sugeridos.length > 0 && (
         <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
           {sugeridos.map((c) => (
-            <li key={c.cpf}>
+            <li key={c.funcionarioId}>
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}

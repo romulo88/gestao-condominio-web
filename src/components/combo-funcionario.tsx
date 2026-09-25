@@ -2,19 +2,19 @@
 
 import { useMemo, useState } from "react";
 import { CandidatoResponsavelResponse, PERFIL_LABEL } from "@/lib/api";
-import { formatarCpf } from "@/lib/format";
 import { Input } from "@/components/ui";
 
 type Props = {
   /** `null` enquanto ainda está carregando. */
   candidatos: CandidatoResponsavelResponse[] | null;
-  onSelecionar: (cpfFormatado: string) => void;
+  onSelecionar: (funcionarioId: number) => void;
   placeholder?: string;
-  /** CPF selecionado guardado pelo formulário pai (ex: `novoResponsavelCpfPorDemanda[d.id]`).
-   * Só serve pra saber quando o pai LIMPOU esse campo (ex: depois de "Atribuir" com
-   * sucesso) e então limpar o texto exibido aqui também - sem isso o texto da pessoa
-   * selecionada ficava preso na tela mesmo com o formulário "limpo" por baixo. */
-  valorSelecionado: string;
+  /** Id do funcionário selecionado, guardado pelo formulário pai (ex:
+   * `novoResponsavelIdPorDemanda[d.id]`). Só serve pra saber quando o pai LIMPOU esse
+   * campo (ex: depois de "Atribuir" com sucesso) e então limpar o texto exibido aqui
+   * também - sem isso o texto da pessoa selecionada ficava preso na tela mesmo com o
+   * formulário "limpo" por baixo. */
+  valorSelecionado: number | null;
 };
 
 function rotulo(c: CandidatoResponsavelResponse): string {
@@ -24,14 +24,13 @@ function rotulo(c: CandidatoResponsavelResponse): string {
 
 /** Combo com sugestão pro "Atribuir responsável" - mesmo padrão do `ComboPessoa` (item
  * 4.8), só que mais simples: candidato é sempre funcionário, sem unidade nem distinção
- * de papel. Digitar filtra por nome ou CPF (busca continua aceitando os dois - só a
- * sugestão exibida trocou de CPF pra perfil, pedido do Romulo); clicar numa sugestão
- * chama `onSelecionar` com o CPF já formatado - "Atribuir" continua um passo separado,
- * de propósito. */
+ * de papel. Digitar filtra só por nome (CPF saiu do sistema, v177/LGPD); clicar numa
+ * sugestão chama `onSelecionar` com o id do funcionário - "Atribuir" continua um passo
+ * separado, de propósito. */
 export function ComboFuncionario({
   candidatos,
   onSelecionar,
-  placeholder = "Nome ou CPF",
+  placeholder = "Nome",
   valorSelecionado,
 }: Props) {
   const [busca, setBusca] = useState("");
@@ -44,24 +43,19 @@ export function ComboFuncionario({
   const [ultimoValorSelecionado, setUltimoValorSelecionado] = useState(valorSelecionado);
   if (valorSelecionado !== ultimoValorSelecionado) {
     setUltimoValorSelecionado(valorSelecionado);
-    if (valorSelecionado === "") setBusca("");
+    if (valorSelecionado === null) setBusca("");
   }
 
   const buscaNormalizada = busca.trim().toLowerCase();
-  const buscaDigitos = buscaNormalizada.replace(/\D/g, "");
   const sugeridos = useMemo(() => {
     if (!candidatos || buscaNormalizada.length === 0) return [];
-    return candidatos
-      .filter(
-        (c) => c.nome.toLowerCase().includes(buscaNormalizada) || (buscaDigitos.length > 0 && c.cpf.includes(buscaDigitos)),
-      )
-      .slice(0, 8);
-  }, [candidatos, buscaNormalizada, buscaDigitos]);
+    return candidatos.filter((c) => c.nome.toLowerCase().includes(buscaNormalizada)).slice(0, 8);
+  }, [candidatos, buscaNormalizada]);
 
   function selecionar(c: CandidatoResponsavelResponse) {
     setBusca(rotulo(c));
     setAberto(false);
-    onSelecionar(formatarCpf(c.cpf));
+    onSelecionar(c.funcionarioId);
   }
 
   return (
@@ -80,7 +74,7 @@ export function ComboFuncionario({
       {aberto && sugeridos.length > 0 && (
         <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
           {sugeridos.map((c) => (
-            <li key={c.cpf}>
+            <li key={c.funcionarioId}>
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
