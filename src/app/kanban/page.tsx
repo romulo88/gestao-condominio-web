@@ -411,7 +411,11 @@ function KanbanPageInner() {
     ])
       .then(([colunasCarregadas, demandasCarregadas, etiquetasCarregadas, rosterCarregado, condominioCarregado]) => {
         setColunas(colunasCarregadas);
-        setDemandas(demandasCarregadas);
+        // Ordena por `ordem` (posição dentro da coluna, pedido do Romulo) antes de guardar
+        // no estado - como `cards = demandas.filter(...)` preserva ordem relativa, isso já
+        // deixa cada coluna na ordem certa. A partir daqui, a ordem do ARRAY é que vale -
+        // nenhum outro lugar reordena por `ordem` de novo (ver `moverOuReordenar`).
+        setDemandas(demandasCarregadas.slice().sort((a, b) => a.ordem - b.ordem));
         setEtiquetasDisponiveis(etiquetasCarregadas);
         // Busca eager (não só quando o popup abre) porque o ícone precisa saber se fica
         // vermelho ANTES do funcionário clicar nele (pedido do Romulo).
@@ -464,25 +468,72 @@ function KanbanPageInner() {
     setColunaSobreId((atual) => (atual === colunaId ? null : atual));
   }
 
-  async function handleDrop(e: React.DragEvent<HTMLDivElement>, colunaId: number) {
-    e.preventDefault();
-    setColunaSobreId(null);
+  /** Move o card entre colunas E/OU reordena dentro da MESMA coluna (pedido do Romulo:
+   * agrupar cards de assuntos parecidos lado a lado, arrastando um pra perto do outro) -
+   * `antesDaDemandaId` null solta no FIM da coluna de destino (mesmo comportamento de
+   * sempre); preenchido insere a demanda arrastada imediatamente antes da demanda
+   * referenciada (soltar encima de um card específico - sem precisar calcular posição por
+   * coordenada do mouse). Splice local otimista antes de chamar a API - a ordem do array
+   * já reflete o resultado na hora, sem esperar a resposta; desfaz em caso de erro. */
+  async function moverOuReordenar(demandaId: number, colunaId: number, antesDaDemandaId: number | null) {
     if (!sessao) return;
+    const atual = demandas ?? [];
+    const demanda = atual.find((d) => d.id === demandaId);
+    if (!demanda) return;
 
-    const demandaId = Number(e.dataTransfer.getData("text/plain"));
-    const demanda = (demandas ?? []).find((d) => d.id === demandaId);
-    if (!demanda || demanda.statusKanbanId === colunaId) return;
+    const semODragged = atual.filter((d) => d.id !== demandaId);
+    let indiceInsercao: number;
+    if (antesDaDemandaId !== null) {
+      indiceInsercao = semODragged.findIndex((d) => d.id === antesDaDemandaId);
+      if (indiceInsercao === -1) indiceInsercao = semODragged.length;
+    } else {
+      let ultimoIndiceDaColuna = -1;
+      for (let i = 0; i < semODragged.length; i++) {
+        if (semODragged[i].statusKanbanId === colunaId) ultimoIndiceDaColuna = i;
+      }
+      indiceInsercao = ultimoIndiceDaColuna + 1;
+    }
+    const demandaMovidaLocal = { ...demanda, statusKanbanId: colunaId };
+    const novoArray = [
+      ...semODragged.slice(0, indiceInsercao),
+      demandaMovidaLocal,
+      ...semODragged.slice(indiceInsercao),
+    ];
+    setDemandas(novoArray);
 
     setErroMover(null);
     setMovendoId(demandaId);
     try {
-      const atualizada = await moverDemandaKanban(sessao.token, demandaId, { statusKanbanId: colunaId });
-      setDemandas((atual) => (atual ?? []).map((d) => (d.id === demandaId ? atualizada : d)));
+      const atualizada = await moverDemandaKanban(sessao.token, demandaId, {
+        statusKanbanId: colunaId,
+        antesDaDemandaId,
+      });
+      setDemandas((depois) => (depois ?? []).map((d) => (d.id === demandaId ? atualizada : d)));
     } catch (err) {
       setErroMover(err instanceof Error ? err.message : "Falha ao mover a demanda.");
+      setDemandas(atual);
     } finally {
       setMovendoId(null);
     }
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>, colunaId: number) {
+    e.preventDefault();
+    setColunaSobreId(null);
+    const demandaId = Number(e.dataTransfer.getData("text/plain"));
+    moverOuReordenar(demandaId, colunaId, null);
+  }
+
+  /** Drop-zone própria de cada card (pedido do Romulo) - soltar ENCIMA de um card específico
+   * insere a demanda arrastada imediatamente antes dele, dentro da coluna dele.
+   * `e.stopPropagation()` evita borbulhar pro `onDrop` da coluna (que soltaria no fim). */
+  function handleDropNoCard(e: React.DragEvent<HTMLDivElement>, colunaId: number, referenciaId: number) {
+    e.preventDefault();
+    e.stopPropagation();
+    setColunaSobreId(null);
+    const demandaId = Number(e.dataTransfer.getData("text/plain"));
+    if (demandaId === referenciaId) return;
+    moverOuReordenar(demandaId, colunaId, referenciaId);
   }
 
   /** Arquiva a demanda (pedido do Romulo) - só aparece pro funcionário e só em card de
@@ -1470,6 +1521,11 @@ function KanbanPageInner() {
                         key={d.id}
                         draggable={podeGerenciar}
                         onDragStart={(e) => handleDragStart(e, d.id)}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        onDrop={(e) => handleDropNoCard(e, coluna.id, d.id)}
                         title={
                           destacarEtapaVencida
                             ? "Tem etapa com prazo vencido"

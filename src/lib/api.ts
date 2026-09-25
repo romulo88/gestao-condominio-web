@@ -1139,6 +1139,11 @@ export type DemandaResponse = {
   statusAprovacao: DemandaStatusAprovacao;
   statusKanbanId: number | null;
   statusKanbanNome: string | null;
+  /** Posição do card dentro da coluna atual - pedido do Romulo: arrastar card pra
+   * qualquer posição, pra agrupar assuntos parecidos lado a lado. Usado só pra ordenar a
+   * lista inicial do Kanban por coluna - depois da primeira renderização, a ordem do
+   * array local já reordenado é que vale (ver `kanban/page.tsx`). */
+  ordem: number;
   funcionarioResponsavelNome: string | null;
   funcionarioAprovadorNome: string | null;
   dataAprovacao: string | null;
@@ -1208,6 +1213,10 @@ export type DemandaReprovarRequest = {
 
 export type DemandaMoverKanbanRequest = {
   statusKanbanId: number;
+  /** `null` solta no fim da coluna de destino; preenchido insere a demanda arrastada
+   * imediatamente antes da demanda referenciada (que precisa já pertencer à coluna de
+   * destino) - alimenta "soltar encima de um card" no Kanban. */
+  antesDaDemandaId: number | null;
 };
 
 /** Sempre no condomínio do PRÓPRIO contexto. Por padrão, funcionário vê todas e morador só
