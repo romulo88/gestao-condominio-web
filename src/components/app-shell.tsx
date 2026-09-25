@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ContextoDto,
+  ehPerfilRestrito,
   existePendenciaMensagemPrivada,
   labelContexto,
   listarDemandas,
@@ -30,9 +31,17 @@ import { AlertaMudancasStatus } from "@/components/alerta-mudancas-status";
  * Pedido do Romulo (teste visual): sem ícone, só texto, separado por "|" em azul claro -
  * mesma cor do traço que já separava a marca "Commander" desse grupo. */
 function MenuIconesNav({ sessao }: { sessao: Sessao }) {
-  const podeGerenciarCondominio = sessao.tipoPapel !== "morador";
+  // Perfil de acesso restrito (rondista/agente de convívio, pedido do Romulo) não gerencia
+  // condomínio - só cadastra/acompanha a própria demanda.
+  const podeGerenciarCondominio =
+    sessao.tipoPapel !== "morador" &&
+    !(sessao.tipoPapel === "funcionario" && ehPerfilRestrito(sessao.perfil));
   const podeVerDemandas = sessao.tipoPapel === "funcionario" || sessao.tipoPapel === "morador";
-  const podeVerKanban = sessao.tipoPapel === "funcionario" || sessao.tipoPapel === "morador";
+  // Perfil de acesso restrito (rondista/agente de convívio, pedido do Romulo) não vê o
+  // quadro Kanban - só o menu "Demanda" (visibilidade lá já é restrita à própria demanda +
+  // aprovada em que é responsável, ver `DemandaService.podeVer` no backend).
+  const podeVerKanban =
+    sessao.tipoPapel === "morador" || (sessao.tipoPapel === "funcionario" && !ehPerfilRestrito(sessao.perfil));
   // Parâmetros gerais do sistema (pedido do Romulo, v147) - configuração do sistema
   // TODO, não de um condomínio específico, por isso não fica junto de "Condomínio" -
   // 100% administrador, nem síndico vê esse link (mesma exclusividade do backend, ver

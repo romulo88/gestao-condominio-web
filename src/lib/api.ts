@@ -30,7 +30,13 @@ export type PaginaResponse<T> = {
 };
 
 export type TipoPapel = "funcionario" | "morador" | "administrador";
-export type FuncionarioPerfil = "sindico" | "sub_sindico" | "supervisor" | "encarregado";
+export type FuncionarioPerfil =
+  | "sindico"
+  | "sub_sindico"
+  | "supervisor"
+  | "encarregado"
+  | "rondista"
+  | "agente_convivio";
 export type CondominioTipo = "apartamento" | "casas";
 export type Situacao = "ativo" | "inativo";
 
@@ -39,7 +45,16 @@ export const PERFIL_LABEL: Record<FuncionarioPerfil, string> = {
   sub_sindico: "Sub-síndico",
   supervisor: "Supervisor",
   encarregado: "Encarregado",
+  rondista: "Rondista",
+  agente_convivio: "Agente de convívio",
 };
+
+/** Perfil de acesso restrito (rondista/agente de convívio, pedido do Romulo) - só cadastra
+ * demanda e acompanha as próprias/onde é responsável, sem Kanban nem poder de decisão (ver
+ * `AppShell`/`demandas/page.tsx`). Espelha `FuncionarioPerfil.acessoRestrito` no backend. */
+export function ehPerfilRestrito(perfil: FuncionarioPerfil | null): boolean {
+  return perfil === "rondista" || perfil === "agente_convivio";
+}
 
 export type ContextoDto = {
   // null só no contexto de administrador - é um papel global, sem condomínio associado.
@@ -1255,6 +1270,7 @@ export async function listarPaginaDemandas(
     status?: string;
     notaNaoLida?: boolean;
     etapaVencida?: boolean;
+    meuResponsavel?: boolean;
     pagina?: number;
     tamanho?: number;
   },
@@ -1264,6 +1280,7 @@ export async function listarPaginaDemandas(
   if (filtros.status) params.set("status", filtros.status);
   if (filtros.notaNaoLida) params.set("notaNaoLida", "true");
   if (filtros.etapaVencida) params.set("etapaVencida", "true");
+  if (filtros.meuResponsavel) params.set("meuResponsavel", "true");
   params.set("pagina", String(filtros.pagina ?? 0));
   params.set("tamanho", String(filtros.tamanho ?? 20));
   const res = await fetch(`${API_URL}/api/demandas/pagina?${params}`, { headers: authHeaders(token) });

@@ -20,6 +20,7 @@ import {
   DemandaResponse,
   DemandaResponsavelResponse,
   DemandaStatusAprovacao,
+  ehPerfilRestrito,
   listarAcessoSigiloso,
   listarCandidatosAcesso,
   listarCandidatosResponsavel,
@@ -209,6 +210,26 @@ function DemandasPageInner() {
   // mesmo critério de "vencida" usado no contorno vermelho do card do Kanban - ver
   // `etapaVencida` em `lib/format.ts`) - usa o flag `temEtapaVencida` do payload.
   const [filtroEtapaVencida, setFiltroEtapaVencida] = useState(etapaVencidaViaUrl);
+  // "Minhas demandas" (pedido do Romulo) - só as em que quem está logado está marcado
+  // como responsável. Útil pra qualquer funcionário, essencial pros perfis de acesso
+  // restrito (rondista/agente de convívio) acharem rápido o que precisam tratar - por
+  // isso já vem marcado por padrão pra esses dois perfis (demais começam desmarcado).
+  // Não dá pra decidir isso direto no `useState` inicial: `sessao` ainda é `null` no
+  // primeiro render (antes da hidratação terminar, ver `useSessaoObrigatoria`) - o
+  // `useEffect` abaixo aplica o padrão assim que `sessao` chega, só uma vez.
+  const [filtroMeuResponsavel, setFiltroMeuResponsavel] = useState(false);
+  const aplicouPadraoMeuResponsavelRef = useRef(false);
+  useEffect(() => {
+    if (aplicouPadraoMeuResponsavelRef.current || !sessao) return;
+    aplicouPadraoMeuResponsavelRef.current = true;
+    if (sessao.tipoPapel === "funcionario" && ehPerfilRestrito(sessao.perfil)) {
+      setFiltroMeuResponsavel(true);
+      // Mesmo reset que o toggle manual já faz ao ativar (linha do botão, mais abaixo) -
+      // senão o padrão "Pendente" (funcionário) filtra fora justamente as demandas
+      // aprovadas em que esse perfil é responsável, mostrando lista vazia ao logar.
+      setFiltroStatus("");
+    }
+  }, [sessao]);
 
   // Formulário de cadastro fica dentro de um agrupador fechado por padrão (pedido do
   // Romulo: dar foco na listagem, só abre o formulário quem clicar).
@@ -414,6 +435,7 @@ function DemandasPageInner() {
       status: filtroStatusEfetivo || undefined,
       notaNaoLida: filtroNotaNaoLida,
       etapaVencida: filtroEtapaVencida,
+      meuResponsavel: filtroMeuResponsavel,
       pagina,
     })
       .then((resultado) => {
@@ -434,6 +456,7 @@ function DemandasPageInner() {
       status: filtroStatusEfetivo || undefined,
       notaNaoLida: filtroNotaNaoLida,
       etapaVencida: filtroEtapaVencida,
+      meuResponsavel: filtroMeuResponsavel,
       pagina: paginaDemanda,
     })
       .then((resultado) => {
@@ -451,7 +474,15 @@ function DemandasPageInner() {
     return () => {
       cancelado = true;
     };
-  }, [sessao, buscaEfetivaDescricao, filtroStatusEfetivo, filtroNotaNaoLida, filtroEtapaVencida, paginaDemanda]);
+  }, [
+    sessao,
+    buscaEfetivaDescricao,
+    filtroStatusEfetivo,
+    filtroNotaNaoLida,
+    filtroEtapaVencida,
+    filtroMeuResponsavel,
+    paginaDemanda,
+  ]);
 
   // `listarMensagensRapidas` devolve mais recente primeiro (ver MensagemRapidaRepository) -
   // aqui inverte pra mais antiga primeiro, porque a combo dos painéis de decisão abaixo
@@ -476,6 +507,10 @@ function DemandasPageInner() {
   if (!sessao) return null;
 
   const podeVerEtapas = sessao.tipoPapel === "funcionario";
+  // Perfil de acesso restrito (rondista/agente de convívio, pedido do Romulo) não decide
+  // nada do fluxo de aprovação - vê a própria demanda pendente, mas não pode aprovar de
+  // imediato, aprovar pra Visão, nem recusar (só quem já gerencia o condomínio decide).
+  const podeDecidirAprovacao = sessao.tipoPapel === "funcionario" && !ehPerfilRestrito(sessao.perfil);
 
   function formEtapa(demandaId: number) {
     return etapaFormPorDemanda[demandaId] ?? { nome: "", prazo: "" };
@@ -1223,6 +1258,35 @@ function DemandasPageInner() {
             <IconeRelogio className="h-5 w-5" />
           </button>
         )}
+        {/* "Minhas demandas" (pedido do Romulo): só as em que quem está logado está
+            marcado como responsável - mesmo padrão de toggle dos dois ícones acima. Útil
+            pra qualquer funcionário, essencial pros perfis de acesso restrito (rondista/
+            agente de convívio) acharem rápido o que precisam tratar. */}
+        {sessao.tipoPapel === "funcionario" && (
+          <button
+            type="button"
+            onClick={() => {
+              setFiltroMeuResponsavel((atual) => {
+                const ativando = !atual;
+                if (ativando) setFiltroStatus("");
+                return ativando;
+              });
+              setPaginaDemanda(0);
+            }}
+            title={
+              filtroMeuResponsavel
+                ? "Mostrando só demandas em que sou responsável - clique pra desativar"
+                : "Filtrar demandas em que sou responsável"
+            }
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border ${
+              filtroMeuResponsavel
+                ? "border-blue-400 bg-blue-50 text-blue-600"
+                : "border-transparent bg-slate-100 text-slate-400 hover:text-slate-600"
+            }`}
+          >
+            <IconeResponsavel className="h-5 w-5" />
+          </button>
+        )}
       </div>
 
       <div className="mt-4 rounded-lg border border-slate-200 bg-white">
@@ -1237,7 +1301,11 @@ function DemandasPageInner() {
             {/* `filtroStatus === null` é o padrão (Pendente pra funcionário/Todos pra
                 morador), não uma escolha visível da pessoa - só conta como "filtro ativo"
                 pra essa mensagem quando ela mexeu em algo de propósito. */}
-            {!buscaEfetivaDescricao && filtroStatus === null && !filtroNotaNaoLida && !filtroEtapaVencida
+            {!buscaEfetivaDescricao &&
+            filtroStatus === null &&
+            !filtroNotaNaoLida &&
+            !filtroEtapaVencida &&
+            !filtroMeuResponsavel
               ? "Nenhuma demanda cadastrada ainda."
               : "Nenhuma demanda bate com esse filtro."}
           </p>
@@ -1401,8 +1469,10 @@ function DemandasPageInner() {
                   </div>
                 )}
 
-                {/* Pedido do Romulo: campo Sigilosa acima do link "Atribuir responsável". */}
-                {podeVerEtapas && (
+                {/* Pedido do Romulo: campo Sigilosa acima do link "Atribuir responsável".
+                    Perfil de acesso restrito não alterna sigilo (backend bloqueia
+                    `alternarSigilo` do mesmo jeito que aprovar/reprovar/mover Kanban). */}
+                {podeDecidirAprovacao && (
                   <div className="mt-2 flex items-center gap-2 text-xs font-normal text-slate-500">
                     <label className="flex items-center gap-1">
                       <input
@@ -1435,7 +1505,9 @@ function DemandasPageInner() {
                     sublinhado dos demais. */}
                 {(podeVerEtapas || imagensSoLink(d)) && (
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-medium">
-                    {podeVerEtapas && (
+                    {/* Perfil de acesso restrito (rondista/agente de convívio) não atribui
+                        responsável a ninguém - continua podendo SER atribuído por outro. */}
+                    {podeDecidirAprovacao && (
                       <>
                         <button
                           type="button"
@@ -1452,7 +1524,7 @@ function DemandasPageInner() {
                         )}
                       </>
                     )}
-                    {podeVerEtapas && d.statusAprovacao === "pendente" && (
+                    {podeDecidirAprovacao && d.statusAprovacao === "pendente" && (
                       <>
                         <button
                           type="button"
@@ -1515,7 +1587,7 @@ function DemandasPageInner() {
                   </div>
                 )}
 
-                {podeVerEtapas && responsavelAberto === d.id && (
+                {podeDecidirAprovacao && responsavelAberto === d.id && (
                   <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
                     <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
                       Funcionários responsáveis por essa demanda
@@ -1573,7 +1645,7 @@ function DemandasPageInner() {
                 {/* "Aprovar de imediato": sem Kanban - combo com as mensagens positivas
                     (pré-preenchida com a primeira cadastrada) + texto livre, que tem
                     prioridade sobre a combo quando preenchido. */}
-                {podeVerEtapas && decisaoAberta === d.id && decisaoModo === "imediato" && (
+                {podeDecidirAprovacao && decisaoAberta === d.id && decisaoModo === "imediato" && (
                   <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
                     <p className="text-xs font-medium text-slate-600">Aprovar de imediato (sem o quadro Visão)</p>
                     <select
@@ -1607,7 +1679,7 @@ function DemandasPageInner() {
                 )}
 
                 {/* "Aprovar com Kanban": formulário de sempre, sem a parte de recusar ao lado. */}
-                {podeVerEtapas && decisaoAberta === d.id && decisaoModo === "kanban" && (
+                {podeDecidirAprovacao && decisaoAberta === d.id && decisaoModo === "kanban" && (
                   <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
                     <p className="text-xs font-medium text-slate-600">Aprovar para Visão</p>
                     <div className="flex gap-2">
@@ -1640,7 +1712,7 @@ function DemandasPageInner() {
 
                 {/* "Recusar": mesmo esquema de combo + texto livre da "Aprovar de imediato",
                     só que com as mensagens negativas. */}
-                {podeVerEtapas && decisaoAberta === d.id && decisaoModo === "recusar" && (
+                {podeDecidirAprovacao && decisaoAberta === d.id && decisaoModo === "recusar" && (
                   <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
                     <p className="text-xs font-medium text-slate-600">
                       Recusar (ex: já existe demanda igual aberta, resolvida na hora)
