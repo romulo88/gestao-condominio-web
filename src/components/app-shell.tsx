@@ -174,7 +174,9 @@ function MenuIconesAlerta({ sessao }: { sessao: Sessao }) {
   const [existeEtapaVencida, setExisteEtapaVencida] = useState(false);
 
   useEffect(() => {
-    if (sessao.tipoPapel !== "funcionario") return;
+    // Perfil de acesso restrito (rondista/agente de convívio, pedido do Romulo) não
+    // precisa desses ícones - nem vale a pena buscar a listagem só pra calculá-los.
+    if (sessao.tipoPapel !== "funcionario" || ehPerfilRestrito(sessao.perfil)) return;
 
     let cancelado = false;
     function atualizar() {
@@ -205,9 +207,11 @@ function MenuIconesAlerta({ sessao }: { sessao: Sessao }) {
       document.removeEventListener("visibilitychange", aoFicarVisivel);
       window.removeEventListener(EVENTO_ALERTAS_DEMANDAS, atualizar);
     };
-  }, [sessao.tipoPapel, sessao.token]);
+  }, [sessao.tipoPapel, sessao.perfil, sessao.token]);
 
-  if (sessao.tipoPapel !== "funcionario") return null;
+  // Perfil de acesso restrito (rondista/agente de convívio, pedido do Romulo) não tem
+  // necessidade de ver nota não lida/etapa vencida/lembretes - sem menu.
+  if (sessao.tipoPapel !== "funcionario" || ehPerfilRestrito(sessao.perfil)) return null;
 
   return (
     <nav className="flex items-center gap-1">
