@@ -9,7 +9,7 @@ export default function Home() {
 
   useEffect(() => {
     const sessao = getSessaoSnapshot();
-    router.replace(sessao ? destinoPosLogin(sessao.tipoPapel) : "/login");
+    router.replace(sessao ? destinoPosLogin(sessao.tipoPapel, sessao.perfil) : "/login");
   }, [router]);
 
   return null;

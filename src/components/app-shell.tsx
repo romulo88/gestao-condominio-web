@@ -42,6 +42,14 @@ function MenuIconesNav({ sessao }: { sessao: Sessao }) {
   // aprovada em que é responsável, ver `DemandaService.podeVer` no backend).
   const podeVerKanban =
     sessao.tipoPapel === "morador" || (sessao.tipoPapel === "funcionario" && !ehPerfilRestrito(sessao.perfil));
+  // Feature "Controle de Rondas" (pedido do Romulo): perfil rondista tem seu próprio link
+  // pra retomar a tela de ronda (a tela inicial já leva ele lá, ver `destinoPosLogin`, mas
+  // ele pode navegar pra "Demanda" e precisar voltar). "Rondas" (histórico) tem 3 públicos -
+  // perfil completo e morador (`podeVerKanban` já cobre os dois) e rondista, que
+  // `podeVerKanban` exclui de propósito (é perfil restrito, mas PRECISA ver as próprias
+  // rondas) - ver `app/rondas/page.tsx` pro recorte de cada um.
+  const ehRondista = sessao.tipoPapel === "funcionario" && sessao.perfil === "rondista";
+  const podeVerRondas = podeVerKanban || ehRondista;
   // Parâmetros gerais do sistema (pedido do Romulo, v147) - configuração do sistema
   // TODO, não de um condomínio específico, por isso não fica junto de "Condomínio" -
   // 100% administrador, nem síndico vê esse link (mesma exclusividade do backend, ver
@@ -51,7 +59,9 @@ function MenuIconesNav({ sessao }: { sessao: Sessao }) {
   const itens: { href: string; title: string; label: string }[] = [
     ...(podeGerenciarCondominio ? [{ href: "/condominios", title: "Cadastro de condomínio", label: "Condomínio" }] : []),
     ...(podeVerDemandas ? [{ href: "/demandas", title: "Demandas", label: "Demanda" }] : []),
+    ...(ehRondista ? [{ href: "/ronda", title: "Ronda", label: "Ronda" }] : []),
     ...(podeVerKanban ? [{ href: "/kanban", title: "Visão", label: "Visão" }] : []),
+    ...(podeVerRondas ? [{ href: "/rondas", title: "Controle de rondas", label: "Rondas" }] : []),
     ...(podeVerParametros ? [{ href: "/parametros", title: "Parâmetros do sistema", label: "Parâmetros" }] : []),
   ];
 
@@ -304,7 +314,7 @@ export function AppShell({
         ultimoLoginAnterior: sessao.ultimoLoginAnterior,
       });
       setModalAberto(false);
-      router.push(destinoPosLogin(c.tipoPapel));
+      router.push(destinoPosLogin(c.tipoPapel, c.perfil));
     } catch (err) {
       setErroContexto(err instanceof Error ? err.message : "Falha ao trocar de perfil.");
     } finally {
@@ -329,7 +339,7 @@ export function AppShell({
               destino do pós-login (`destinoPosLogin`): quadro de avisos pra
               funcionário/morador, cadastro de condomínio pra administrador (que não tem
               condomínio próprio pra ver avisos). */}
-          <Link href={destinoPosLogin(sessao.tipoPapel)} className="flex items-center gap-2 hover:opacity-80">
+          <Link href={destinoPosLogin(sessao.tipoPapel, sessao.perfil)} className="flex items-center gap-2 hover:opacity-80">
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-500/20 ring-1 ring-blue-400/40">
               <IconeCasa className="h-4 w-4 text-blue-300" />
             </div>

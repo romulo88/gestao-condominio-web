@@ -111,7 +111,7 @@ export default function LoginPage() {
       condominioNome: contexto.condominioNome,
       ultimoLoginAnterior,
     });
-    router.push(destinoPosLogin(contexto.tipoPapel));
+    router.push(destinoPosLogin(contexto.tipoPapel, contexto.perfil));
   }
 
   function abrirModalEsqueci() {

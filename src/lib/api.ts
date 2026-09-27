@@ -1214,6 +1214,9 @@ export type DemandaCreateRequest = {
   descricao: string;
   sigilosa: boolean;
   identificarSolicitante: boolean;
+  /** Preenchido só quando a demanda nasce do botão "Nova demanda" na tela de ronda em
+   * andamento (feature "Controle de Rondas", pedido do Romulo) - ver `FormNovaDemanda`. */
+  rondaId?: number;
 };
 
 /** Exatamente um dos dois: `statusKanbanId` manda pro Kanban, `justificativa` aprova sem
@@ -1949,4 +1952,120 @@ export async function removerFotoMensagemPrivada(token: string, id: number): Pro
   if (!res.ok) {
     await parseOrThrow(res);
   }
+}
+
+// --- Controle de Rondas (pedido do Romulo) ---
+
+export type RondaStatus = "em_andamento" | "finalizada" | "encerrada_manualmente" | "encerrada_automaticamente";
+
+export const RONDA_STATUS_LABEL: Record<RondaStatus, string> = {
+  em_andamento: "Em andamento",
+  finalizada: "Finalizada",
+  encerrada_manualmente: "Encerrada manualmente",
+  encerrada_automaticamente: "Encerrada automaticamente",
+};
+
+/** Duração não vem persistida no backend - quem exibe calcula a partir de `iniciadaEm`/
+ * `finalizadaEm` (ou `iniciadaEm`/agora enquanto `em_andamento`). `funcionarioNome` vem
+ * `null` pra quem não pode ver quem fez a ronda (rondista na própria lista, morador) -
+ * pedido do Romulo, o backend já redige, não é só a tela que escolhe esconder. */
+export type RondaResponse = {
+  id: number;
+  funcionarioId: number;
+  funcionarioNome: string | null;
+  iniciadaEm: string;
+  finalizadaEm: string | null;
+  status: RondaStatus;
+  distanciaMetros: number | null;
+  totalDemandas: number;
+};
+
+export type RondaPontoResponse = {
+  latitude: number;
+  longitude: number;
+  capturadoEm: string;
+};
+
+export type RondaDetalheResponse = RondaResponse & { pontos: RondaPontoResponse[] };
+
+export type RondaResumoResponse = {
+  totalRondas: number;
+  tempoTotalSegundos: number;
+  totalDemandas: number;
+};
+
+/** Enviado em lote pelo cliente a cada ~20s durante a ronda (tolera sinal ruim na moto) -
+ * ver `app/ronda/page.tsx`. */
+export type RondaPontoRequest = {
+  latitude: number;
+  longitude: number;
+  capturadoEm: string;
+};
+
+/** Só perfil rondista. 409 se já existir uma ronda em andamento desse mesmo rondista
+ * (várias rondas de rondistas diferentes do mesmo condomínio podem estar em andamento ao
+ * mesmo tempo, sem conflito). */
+export async function iniciarRonda(token: string): Promise<RondaResponse> {
+  const res = await fetch(`${API_URL}/api/rondas`, { method: "POST", headers: authHeaders(token) });
+  return parseOrThrow<RondaResponse>(res);
+}
+
+/** 404 vira `null` (nenhuma ronda em andamento) - usado ao abrir a tela de ronda pra
+ * retomar o estado se a página recarregar no meio dela. */
+export async function buscarRondaAtiva(token: string): Promise<RondaResponse | null> {
+  const res = await fetch(`${API_URL}/api/rondas/ativa`, { headers: authHeaders(token) });
+  return parseOrNullSe404<RondaResponse>(res);
+}
+
+export async function enviarPontosRonda(token: string, rondaId: number, pontos: RondaPontoRequest[]): Promise<void> {
+  const res = await fetch(`${API_URL}/api/rondas/${rondaId}/pontos`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(pontos),
+  });
+  if (!res.ok) {
+    await parseOrThrow(res);
+  }
+}
+
+/** Autorizado pro próprio dono da ronda OU por um perfil completo do condomínio encerrando
+ * uma ronda esquecida de outro rondista - o status resultante muda conforme quem chamou. */
+export async function finalizarRonda(token: string, rondaId: number): Promise<RondaResponse> {
+  const res = await fetch(`${API_URL}/api/rondas/${rondaId}/finalizar`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+  });
+  return parseOrThrow<RondaResponse>(res);
+}
+
+/** Tela "Rondas" do síndico - só perfil completo. Inclui rondas em andamento. */
+export async function listarPaginaRondas(
+  token: string,
+  filtros: { funcionarioId?: number; inicio?: string; fim?: string; pagina?: number; tamanho?: number },
+): Promise<PaginaResponse<RondaResponse>> {
+  const params = new URLSearchParams();
+  if (filtros.funcionarioId) params.set("funcionarioId", String(filtros.funcionarioId));
+  if (filtros.inicio) params.set("inicio", filtros.inicio);
+  if (filtros.fim) params.set("fim", filtros.fim);
+  params.set("pagina", String(filtros.pagina ?? 0));
+  params.set("tamanho", String(filtros.tamanho ?? 20));
+  const res = await fetch(`${API_URL}/api/rondas/pagina?${params}`, { headers: authHeaders(token) });
+  return parseOrThrow<PaginaResponse<RondaResponse>>(res);
+}
+
+export async function buscarResumoRondas(
+  token: string,
+  filtros: { funcionarioId?: number; inicio?: string; fim?: string },
+): Promise<RondaResumoResponse> {
+  const params = new URLSearchParams();
+  if (filtros.funcionarioId) params.set("funcionarioId", String(filtros.funcionarioId));
+  if (filtros.inicio) params.set("inicio", filtros.inicio);
+  if (filtros.fim) params.set("fim", filtros.fim);
+  const res = await fetch(`${API_URL}/api/rondas/resumo?${params}`, { headers: authHeaders(token) });
+  return parseOrThrow<RondaResumoResponse>(res);
+}
+
+export async function buscarRonda(token: string, id: number): Promise<RondaDetalheResponse> {
+  const res = await fetch(`${API_URL}/api/rondas/${id}`, { headers: authHeaders(token) });
+  return parseOrThrow<RondaDetalheResponse>(res);
 }

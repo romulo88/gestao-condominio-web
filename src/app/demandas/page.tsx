@@ -10,7 +10,6 @@ import {
   CandidatoAcessoResponse,
   CandidatoResponsavelResponse,
   concederAcessoSigiloso,
-  criarDemanda,
   criarEtapa,
   criarNotaDemanda,
   DemandaAcessoSigilosoResponse,
@@ -65,8 +64,7 @@ import {
   IconeResponsavel,
   IconeUpload,
 } from "@/components/icons";
-import { MarkdownEditor } from "@/components/markdown-editor";
-import { UploadImagens } from "@/components/upload-imagens";
+import { FormNovaDemanda } from "@/components/form-nova-demanda";
 import { Button, Input } from "@/components/ui";
 
 const STATUS_LABEL: Record<DemandaStatusAprovacao, string> = {
@@ -84,11 +82,6 @@ const STATUS_CLASSES: Record<DemandaStatusAprovacao, string> = {
 function formatarData(iso: string): string {
   return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
-
-// `identificarSolicitante: null` = "segue o padrão do papel de quem tá logado" (marcado
-// pra funcionário, desmarcado pra morador) - só vira um boolean explícito quando a
-// pessoa mexe na caixa. Evita um efeito só pra sincronizar o valor inicial com a sessão.
-const FORM_VAZIO = { titulo: "", descricao: "", sigilosa: false, identificarSolicitante: null as boolean | null };
 
 /** Cadastro de demandas - morador e funcionário abrem, sempre no condomínio do próprio
  * contexto (nunca um id escolhido na tela). Funcionário vê todas as demandas do
@@ -234,10 +227,6 @@ function DemandasPageInner() {
   // Formulário de cadastro fica dentro de um agrupador fechado por padrão (pedido do
   // Romulo: dar foco na listagem, só abre o formulário quem clicar).
   const [formNovaDemandaAberto, setFormNovaDemandaAberto] = useState(false);
-  const [campos, setCampos] = useState(FORM_VAZIO);
-  const [salvando, setSalvando] = useState(false);
-  const [erroForm, setErroForm] = useState<string | null>(null);
-  const [imagensNovas, setImagensNovas] = useState<File[]>([]);
 
   const [etapasPorDemanda, setEtapasPorDemanda] = useState<Record<number, DemandaEtapaResponse[]>>({});
   const [erroEtapasPorDemanda, setErroEtapasPorDemanda] = useState<Record<number, string>>({});
@@ -681,54 +670,30 @@ function DemandasPageInner() {
     }
   }
 
-  async function handleCriar(e: React.FormEvent) {
-    e.preventDefault();
-    if (!sessao) return;
-    setErroForm(null);
-    setSalvando(true);
-    try {
-      const nova = await criarDemanda(sessao.token, {
-        titulo: campos.titulo,
-        descricao: campos.descricao,
-        sigilosa: campos.sigilosa,
-        identificarSolicitante: campos.identificarSolicitante ?? sessao.tipoPapel === "funcionario",
-      });
-      setCampos(FORM_VAZIO);
-      // A demanda já nasceu - as imagens só têm onde subir depois disso (o upload
-      // exige um demandaId real, ver DemandaDocumentoController). Uma falha aqui não
-      // desfaz a demanda: ela já foi criada, só o(s) anexo(s) que não entraram.
-      let semFalhaDeImagem = true;
-      if (imagensNovas.length > 0) {
-        documentosCarregadosRef.current.add(nova.id);
-        const resultados = await Promise.allSettled(
-          imagensNovas.map((arquivo) => uploadDocumentoDemanda(sessao.token, nova.id, arquivo)),
-        );
-        const enviados = resultados
-          .filter((r): r is PromiseFulfilledResult<DemandaDocumentoResponse> => r.status === "fulfilled")
-          .map((r) => r.value);
-        setDocumentosPorDemanda((atual) => ({ ...atual, [nova.id]: enviados }));
-        setImagensNovas([]);
-        const falhas = resultados.filter((r) => r.status === "rejected").length;
-        if (falhas > 0) {
-          semFalhaDeImagem = false;
-          setErroForm(`Demanda cadastrada, mas ${falhas} imagem(ns) não subiu(ram) - tente anexar de novo.`);
-        }
-      }
-      // Fecha o agrupador de volta pra listagem (pedido do Romulo) - só quando deu tudo
-      // certo, senão o erro acima ficaria escondido junto com o formulário.
-      if (semFalhaDeImagem) {
-        setFormNovaDemandaAberto(false);
-      }
-      // Volta pra primeira página (ordenada por mais recente primeiro, a demanda nova
-      // sempre cai ali) e recarrega - local-append não serve mais com paginação de
-      // verdade (ver `recarregarPaginaDemandas`).
-      setPaginaDemanda(0);
-      recarregarPaginaDemandas(0);
-    } catch (err) {
-      setErroForm(err instanceof Error ? err.message : "Falha ao cadastrar demanda.");
-    } finally {
-      setSalvando(false);
+  /** Callback do `FormNovaDemanda` (componente extraído, reaproveitado também na tela de
+   * ronda) - só a parte específica desta página: fechar o agrupador de volta pra
+   * listagem (só quando deu tudo certo, senão o erro de imagem ficaria escondido junto com
+   * o formulário), guardar os anexos já enviados (evita refetch ao expandir a demanda
+   * nova) e recarregar a primeira página (ordenada por mais recente primeiro, a demanda
+   * nova sempre cai ali - local-append não serve mais com paginação de verdade). */
+  function handleDemandaCriada({
+    demanda,
+    documentos,
+    semFalhaDeImagem,
+  }: {
+    demanda: DemandaResponse;
+    documentos: DemandaDocumentoResponse[];
+    semFalhaDeImagem: boolean;
+  }) {
+    if (documentos.length > 0) {
+      documentosCarregadosRef.current.add(demanda.id);
+      setDocumentosPorDemanda((atual) => ({ ...atual, [demanda.id]: documentos }));
     }
+    if (semFalhaDeImagem) {
+      setFormNovaDemandaAberto(false);
+    }
+    setPaginaDemanda(0);
+    recarregarPaginaDemandas(0);
   }
 
   async function handleRemoverDocumento(demandaId: number, documentoId: number) {
@@ -1092,7 +1057,7 @@ function DemandasPageInner() {
           </Button>
         </div>
       ) : (
-        <form onSubmit={handleCriar} className="mt-6 space-y-3 rounded-lg border border-slate-200 bg-white p-5">
+        <div className="mt-6 space-y-3 rounded-lg border border-slate-200 bg-white p-5">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-slate-700">Nova demanda</p>
             <button
@@ -1104,53 +1069,8 @@ function DemandasPageInner() {
               ✕
             </button>
           </div>
-          <Input
-            required
-            placeholder="Título"
-            value={campos.titulo}
-            onChange={(e) => setCampos((c) => ({ ...c, titulo: e.target.value }))}
-          />
-          <MarkdownEditor
-            required
-            placeholder="Descrição"
-            value={campos.descricao}
-            onChange={(descricao) => setCampos((c) => ({ ...c, descricao }))}
-            rows={6}
-          />
-          <label className="flex items-center gap-2 text-sm text-slate-600">
-            <input
-              type="checkbox"
-              checked={campos.sigilosa}
-              onChange={(e) => setCampos((c) => ({ ...c, sigilosa: e.target.checked }))}
-              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-            />
-            Demanda sigilosa
-          </label>
-          <label className="flex items-center gap-2 text-sm text-slate-600">
-            <input
-              type="checkbox"
-              checked={campos.identificarSolicitante ?? sessao.tipoPapel === "funcionario"}
-              onChange={(e) => setCampos((c) => ({ ...c, identificarSolicitante: e.target.checked }))}
-              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-            />
-            Mostrar meu nome pros funcionários (aparece em &quot;Aberta por&quot;)
-          </label>
-
-          <div>
-            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-slate-400">
-              Imagens e vídeo (opcional)
-            </p>
-            <UploadImagens arquivos={imagensNovas} onChange={setImagensNovas} />
-          </div>
-
-          {erroForm && <p className="text-sm text-red-600">{erroForm}</p>}
-
-          <div className="flex justify-end pt-1">
-            <Button type="submit" disabled={salvando}>
-              {salvando ? "Salvando..." : "Cadastrar"}
-            </Button>
-          </div>
-        </form>
+          <FormNovaDemanda sessao={sessao} aoCriar={handleDemandaCriada} />
+        </div>
       )}
 
       <div className="mt-4 flex gap-3">
