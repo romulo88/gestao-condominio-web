@@ -61,7 +61,12 @@ function MenuIconesNav({ sessao }: { sessao: Sessao }) {
     ...(podeVerDemandas ? [{ href: "/demandas", title: "Demandas", label: "Demanda" }] : []),
     ...(ehRondista ? [{ href: "/ronda", title: "Ronda", label: "Ronda" }] : []),
     ...(podeVerKanban ? [{ href: "/kanban", title: "Visão", label: "Visão" }] : []),
-    ...(podeVerRondas ? [{ href: "/rondas", title: "Controle de rondas", label: "Rondas" }] : []),
+    // Rondista vê só as próprias rondas ali (ver app/rondas/page.tsx) - "Minhas rondas"
+    // deixa isso claro no menu (pedido do Romulo), diferente de "Rondas" pros demais
+    // públicos (perfil completo/morador), que veem as de todo mundo.
+    ...(podeVerRondas
+      ? [{ href: "/rondas", title: "Controle de rondas", label: ehRondista ? "Minhas rondas" : "Rondas" }]
+      : []),
     ...(podeVerParametros ? [{ href: "/parametros", title: "Parâmetros do sistema", label: "Parâmetros" }] : []),
   ];
 
