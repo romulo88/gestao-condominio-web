@@ -1965,10 +1965,25 @@ export const RONDA_STATUS_LABEL: Record<RondaStatus, string> = {
   encerrada_automaticamente: "Encerrada automaticamente",
 };
 
+/** "normal" = ronda em volta do condomínio (rota combinada com o síndico); "acompanhamento"
+ * = rondista acompanha entregador/mudança até a casa do morador e garante que ele saia -
+ * informado pelo próprio rondista no modal do "Finalizar ronda". */
+export type TipoRonda = "normal" | "acompanhamento";
+
+export const TIPO_RONDA_LABEL: Record<TipoRonda, string> = {
+  normal: "Ronda normal",
+  acompanhamento: "Ronda de acompanhamento",
+};
+
+/** Tamanho máximo da observação do rondista - espelha `@Size(max = 100)` no backend. */
+export const RONDA_OBSERVACAO_MAX = 100;
+
 /** Duração não vem persistida no backend - quem exibe calcula a partir de `iniciadaEm`/
- * `finalizadaEm` (ou `iniciadaEm`/agora enquanto `em_andamento`). `funcionarioNome` vem
- * `null` pra quem não pode ver quem fez a ronda (rondista na própria lista, morador) -
- * pedido do Romulo, o backend já redige, não é só a tela que escolhe esconder. */
+ * `finalizadaEm` (ou `iniciadaEm`/agora enquanto `em_andamento`). `funcionarioNome` e
+ * `observacao` vêm `null` pra quem não é perfil completo (rondista na própria lista,
+ * morador) - pedido do Romulo, o backend já redige, não é só a tela que escolhe esconder.
+ * `tipo` vem `null` em ronda em andamento ou encerrada por outra pessoa/pelo sistema (só o
+ * próprio rondista informa o tipo, ao finalizar). */
 export type RondaResponse = {
   id: number;
   funcionarioId: number;
@@ -1978,6 +1993,8 @@ export type RondaResponse = {
   status: RondaStatus;
   distanciaMetros: number | null;
   totalDemandas: number;
+  tipo: TipoRonda | null;
+  observacao: string | null;
 };
 
 export type RondaPontoResponse = {
@@ -2029,38 +2046,63 @@ export async function enviarPontosRonda(token: string, rondaId: number, pontos: 
 }
 
 /** Autorizado pro próprio dono da ronda OU por um perfil completo do condomínio encerrando
- * uma ronda esquecida de outro rondista - o status resultante muda conforme quem chamou. */
-export async function finalizarRonda(token: string, rondaId: number): Promise<RondaResponse> {
+ * uma ronda esquecida de outro rondista - o status resultante muda conforme quem chamou.
+ * O dono é obrigado a mandar `tipo` (400 se faltar); um perfil completo encerrando a ronda
+ * de outra pessoa não manda nada (o backend ignora o corpo nesse caso). */
+export async function finalizarRonda(
+  token: string,
+  rondaId: number,
+  request?: { tipo: TipoRonda; observacao?: string },
+): Promise<RondaResponse> {
   const res = await fetch(`${API_URL}/api/rondas/${rondaId}/finalizar`, {
     method: "PATCH",
     headers: authHeaders(token),
+    body: request ? JSON.stringify(request) : undefined,
   });
   return parseOrThrow<RondaResponse>(res);
 }
 
-/** Tela "Rondas" do síndico - só perfil completo. Inclui rondas em andamento. */
-export async function listarPaginaRondas(
-  token: string,
-  filtros: { funcionarioId?: number; inicio?: string; fim?: string; pagina?: number; tamanho?: number },
-): Promise<PaginaResponse<RondaResponse>> {
+/** Filtros da tela "Rondas" - todos opcionais. `observacao` (contém, sem diferenciar
+ * maiúscula) só tem efeito pra quem enxerga a observação (perfil completo e rondista) - o
+ * backend ignora pra morador, senão o filtro vazaria o texto. */
+export type FiltrosRondas = {
+  funcionarioId?: number;
+  inicio?: string;
+  fim?: string;
+  tipo?: TipoRonda;
+  rondaId?: number;
+  observacao?: string;
+};
+
+/** Quantidade de rondas por página na tela "Rondas" (pedido do Romulo: paginar acima de 15). */
+export const RONDAS_POR_PAGINA = 15;
+
+function paramsFiltrosRondas(filtros: FiltrosRondas): URLSearchParams {
   const params = new URLSearchParams();
   if (filtros.funcionarioId) params.set("funcionarioId", String(filtros.funcionarioId));
   if (filtros.inicio) params.set("inicio", filtros.inicio);
   if (filtros.fim) params.set("fim", filtros.fim);
+  if (filtros.tipo) params.set("tipo", filtros.tipo);
+  if (filtros.rondaId) params.set("rondaId", String(filtros.rondaId));
+  if (filtros.observacao?.trim()) params.set("observacao", filtros.observacao.trim());
+  return params;
+}
+
+/** Tela "Rondas" - perfil completo, rondista (só as próprias) e morador. Inclui rondas em
+ * andamento. */
+export async function listarPaginaRondas(
+  token: string,
+  filtros: FiltrosRondas & { pagina?: number; tamanho?: number },
+): Promise<PaginaResponse<RondaResponse>> {
+  const params = paramsFiltrosRondas(filtros);
   params.set("pagina", String(filtros.pagina ?? 0));
-  params.set("tamanho", String(filtros.tamanho ?? 20));
+  params.set("tamanho", String(filtros.tamanho ?? RONDAS_POR_PAGINA));
   const res = await fetch(`${API_URL}/api/rondas/pagina?${params}`, { headers: authHeaders(token) });
   return parseOrThrow<PaginaResponse<RondaResponse>>(res);
 }
 
-export async function buscarResumoRondas(
-  token: string,
-  filtros: { funcionarioId?: number; inicio?: string; fim?: string },
-): Promise<RondaResumoResponse> {
-  const params = new URLSearchParams();
-  if (filtros.funcionarioId) params.set("funcionarioId", String(filtros.funcionarioId));
-  if (filtros.inicio) params.set("inicio", filtros.inicio);
-  if (filtros.fim) params.set("fim", filtros.fim);
+export async function buscarResumoRondas(token: string, filtros: FiltrosRondas): Promise<RondaResumoResponse> {
+  const params = paramsFiltrosRondas(filtros);
   const res = await fetch(`${API_URL}/api/rondas/resumo?${params}`, { headers: authHeaders(token) });
   return parseOrThrow<RondaResumoResponse>(res);
 }

@@ -2,11 +2,41 @@
 
 import { useEffect, useRef } from "react";
 import "leaflet/dist/leaflet.css";
-import type { Map as LeafletMap, Marker, Polyline } from "leaflet";
+import type { LayerGroup, Map as LeafletMap } from "leaflet";
 
-type Ponto = { latitude: number; longitude: number };
+type Ponto = { latitude: number; longitude: number; capturadoEm?: string };
+type LatLng = [number, number];
 
-const CENTRO_PADRAO: [number, number] = [-23.5505, -46.6333];
+const CENTRO_PADRAO: LatLng = [-23.5505, -46.6333];
+
+/** Intervalo sem nenhum ponto de GPS a partir do qual o trecho é desenhado tracejado, em vez
+ * de uma reta igual à do trajeto real - celular com tela bloqueada/app em segundo plano
+ * suspende o GPS da página (achado do Romulo, ronda real), e a reta ligando o último ponto
+ * antes ao primeiro depois parecia um trajeto de verdade. */
+const LIMITE_LACUNA_MS = 60_000;
+
+/** Quebra o trajeto em trechos contínuos (linha cheia) e lacunas entre eles (tracejada). */
+function segmentar(pontos: Ponto[]): { trechos: LatLng[][]; lacunas: [LatLng, LatLng][] } {
+  const trechos: LatLng[][] = [];
+  const lacunas: [LatLng, LatLng][] = [];
+  let atual: LatLng[] = [];
+  for (let i = 0; i < pontos.length; i++) {
+    const p = pontos[i];
+    const ll: LatLng = [p.latitude, p.longitude];
+    const anterior = pontos[i - 1];
+    if (anterior && anterior.capturadoEm && p.capturadoEm) {
+      const diff = new Date(p.capturadoEm).getTime() - new Date(anterior.capturadoEm).getTime();
+      if (diff > LIMITE_LACUNA_MS) {
+        trechos.push(atual);
+        lacunas.push([[anterior.latitude, anterior.longitude], ll]);
+        atual = [];
+      }
+    }
+    atual.push(ll);
+  }
+  if (atual.length > 0) trechos.push(atual);
+  return { trechos, lacunas };
+}
 
 /**
  * Mapa Leaflet (tiles OpenStreetMap, sem chave de API) do trajeto de uma ronda -
@@ -23,14 +53,13 @@ const CENTRO_PADRAO: [number, number] = [-23.5505, -46.6333];
 export function MapaRonda({ pontos, className }: { pontos: Ponto[]; className?: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapaRef = useRef<LeafletMap | null>(null);
-  const linhaRef = useRef<Polyline | null>(null);
-  const marcadorRef = useRef<Marker | null>(null);
+  const camadasRef = useRef<LayerGroup | null>(null);
 
   useEffect(() => {
     let cancelado = false;
     import("leaflet").then((L) => {
       if (cancelado || !containerRef.current) return;
-      const latLngs: [number, number][] = pontos.map((p) => [p.latitude, p.longitude]);
+      const latLngs: LatLng[] = pontos.map((p) => [p.latitude, p.longitude]);
 
       if (!mapaRef.current) {
         const centro = latLngs.length > 0 ? latLngs[latLngs.length - 1] : CENTRO_PADRAO;
@@ -43,10 +72,18 @@ export function MapaRonda({ pontos, className }: { pontos: Ponto[]; className?: 
       }
       const mapa = mapaRef.current;
 
-      linhaRef.current?.remove();
-      linhaRef.current = L.polyline(latLngs, { color: "#2563eb", weight: 4 }).addTo(mapa);
+      camadasRef.current?.remove();
+      const camadas = L.layerGroup().addTo(mapa);
+      camadasRef.current = camadas;
 
-      marcadorRef.current?.remove();
+      const { trechos, lacunas } = segmentar(pontos);
+      for (const trecho of trechos) {
+        L.polyline(trecho, { color: "#2563eb", weight: 4 }).addTo(camadas);
+      }
+      for (const lacuna of lacunas) {
+        L.polyline(lacuna, { color: "#f59e0b", weight: 3, dashArray: "6 8" }).addTo(camadas);
+      }
+
       if (latLngs.length > 0) {
         const posicaoAtual = latLngs[latLngs.length - 1];
         const iconePosicao = L.divIcon({
@@ -55,9 +92,9 @@ export function MapaRonda({ pontos, className }: { pontos: Ponto[]; className?: 
           iconSize: [16, 16],
           iconAnchor: [8, 8],
         });
-        marcadorRef.current = L.marker(posicaoAtual, { icon: iconePosicao }).addTo(mapa);
+        L.marker(posicaoAtual, { icon: iconePosicao }).addTo(camadas);
         if (latLngs.length > 1) {
-          mapa.fitBounds(linhaRef.current.getBounds(), { padding: [24, 24] });
+          mapa.fitBounds(L.latLngBounds(latLngs), { padding: [24, 24] });
         } else {
           mapa.panTo(posicaoAtual);
         }

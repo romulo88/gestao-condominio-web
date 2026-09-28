@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   buscarResumoRondas,
   buscarRonda,
@@ -11,10 +11,14 @@ import {
   RondaDetalheResponse,
   RondaResponse,
   RondaResumoResponse,
+  RONDA_OBSERVACAO_MAX,
   RONDA_STATUS_LABEL,
+  TIPO_RONDA_LABEL,
+  TipoRonda,
 } from "@/lib/api";
 import { useSessaoObrigatoria } from "@/lib/use-sessao-obrigatoria";
 import { AppShell } from "@/components/app-shell";
+import { IconeOlho } from "@/components/icons";
 import { MapaRonda } from "@/components/mapa-ronda";
 import { Button } from "@/components/ui";
 
@@ -86,19 +90,40 @@ export default function RondasPage() {
   // precisa escolher - perfil completo. Rondista já é implícito (só ele mesmo); morador vê
   // todos sem precisar escolher um de cada vez.
   const mostraComboRondista = ehPerfilCompleto;
+  // Observação (texto que o rondista escreveu ao finalizar): perfil completo e o próprio
+  // rondista (lembrete pra ele). Morador não vê - e por isso também não ganha o filtro por
+  // texto da observação (o backend ignora, senão o filtro vazaria o conteúdo).
+  const podeVerObservacao = ehPerfilCompleto || ehRondista;
 
   const [rondistas, setRondistas] = useState<{ funcionarioId: number; nome: string }[]>([]);
   const [filtroFuncionarioId, setFiltroFuncionarioId] = useState("");
-  const [filtroInicio, setFiltroInicio] = useState("");
+  // `null` = "segue o padrão do papel de quem tá logado" (rondista/morador: ontem 00:00,
+  // perfil completo: sem limite) - só vira um valor explícito quando a pessoa mexe no campo.
+  // Mesmo truque de `filtroStatus` em `demandas/page.tsx`: `sessao` ainda é `null` no
+  // primeiro render (antes da hidratação), então o padrão não pode ser decidido no
+  // `useState` inicial nem aplicado por um efeito (setState síncrono em efeito).
+  const [filtroInicioEscolhido, setFiltroInicioEscolhido] = useState<string | null>(null);
+  const [ontemMeiaNoiteValor] = useState(ontemMeiaNoite);
+  const filtroInicio = filtroInicioEscolhido ?? (ehRondista || ehMorador ? ontemMeiaNoiteValor : "");
   const [filtroFim, setFiltroFim] = useState("");
+  const [filtroTipo, setFiltroTipo] = useState<TipoRonda | "">("");
+  // Nº da ronda e texto da observação são digitados - o que vai pra API é uma cópia
+  // "debounced" (só muda 400ms depois da última tecla), pra não bater uma request por tecla
+  // (mesmo padrão da busca em `condominios/page.tsx`).
+  const [rondaIdDigitado, setRondaIdDigitado] = useState("");
+  const [observacaoDigitada, setObservacaoDigitada] = useState("");
+  const [rondaIdEfetivo, setRondaIdEfetivo] = useState("");
+  const [observacaoEfetiva, setObservacaoEfetiva] = useState("");
 
   const [resumo, setResumo] = useState<RondaResumoResponse | null>(null);
   const [rondas, setRondas] = useState<RondaResponse[] | null>(null);
   const [pagina, setPagina] = useState(0);
   const [totalPaginas, setTotalPaginas] = useState(0);
+  const [totalItens, setTotalItens] = useState(0);
   const [erro, setErro] = useState<string | null>(null);
   const [finalizandoId, setFinalizandoId] = useState<number | null>(null);
   const [rondaDetalhe, setRondaDetalhe] = useState<RondaDetalheResponse | null>(null);
+  const [observacaoAberta, setObservacaoAberta] = useState<{ rondaId: number; texto: string } | null>(null);
 
   useEffect(() => {
     if (!sessao || !mostraComboRondista) return;
@@ -108,45 +133,58 @@ export default function RondasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessao?.token, mostraComboRondista]);
 
-  // Padrão de período pra rondista/morador (pedido do Romulo) - aplicado uma única vez,
-  // assim que a sessão carregar (não dá pra decidir isso no useState inicial: `sessao`
-  // ainda é `null` no primeiro render, antes da hidratação - mesmo motivo/padrão já usado
-  // pro filtro "Minhas demandas" em `demandas/page.tsx`).
-  const aplicouPadraoPeriodoRef = useRef(false);
   useEffect(() => {
-    if (aplicouPadraoPeriodoRef.current || !sessao) return;
-    aplicouPadraoPeriodoRef.current = true;
-    if (ehRondista || ehMorador) {
-      setFiltroInicio(ontemMeiaNoite());
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessao]);
+    const t = setTimeout(() => {
+      setRondaIdEfetivo(rondaIdDigitado);
+      setObservacaoEfetiva(observacaoDigitada);
+      setPagina(0);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [rondaIdDigitado, observacaoDigitada]);
 
-  async function carregar() {
-    if (!sessao) return;
-    setErro(null);
+  // Incrementado depois de encerrar uma ronda pra o efeito abaixo recarregar a lista.
+  const [recarga, setRecarga] = useState(0);
+
+  useEffect(() => {
+    if (!sessao || !podeVer) return;
+    let cancelado = false;
     const filtros = {
       funcionarioId: filtroFuncionarioId ? Number(filtroFuncionarioId) : undefined,
       inicio: filtroInicio ? paraIsoComSegundos(filtroInicio) : undefined,
       fim: filtroFim ? paraIsoComSegundos(filtroFim) : undefined,
+      tipo: filtroTipo || undefined,
+      rondaId: rondaIdEfetivo ? Number(rondaIdEfetivo) : undefined,
+      observacao: podeVerObservacao ? observacaoEfetiva : undefined,
     };
-    try {
-      const [paginaRondas, resumoPeriodo] = await Promise.all([
-        listarPaginaRondas(sessao.token, { ...filtros, pagina }),
-        buscarResumoRondas(sessao.token, filtros),
-      ]);
-      setRondas(paginaRondas.itens);
-      setTotalPaginas(paginaRondas.totalPaginas);
-      setResumo(resumoPeriodo);
-    } catch (err) {
-      setErro(err instanceof Error ? err.message : "Falha ao carregar as rondas.");
-    }
-  }
-
-  useEffect(() => {
-    carregar();
+    Promise.all([listarPaginaRondas(sessao.token, { ...filtros, pagina }), buscarResumoRondas(sessao.token, filtros)])
+      .then(([paginaRondas, resumoPeriodo]) => {
+        if (cancelado) return;
+        setErro(null);
+        setRondas(paginaRondas.itens);
+        setTotalPaginas(paginaRondas.totalPaginas);
+        setTotalItens(paginaRondas.totalItens);
+        setResumo(resumoPeriodo);
+      })
+      .catch((err) => {
+        if (!cancelado) setErro(err instanceof Error ? err.message : "Falha ao carregar as rondas.");
+      });
+    return () => {
+      cancelado = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessao?.token, podeVer, filtroFuncionarioId, filtroInicio, filtroFim, pagina]);
+  }, [
+    sessao?.token,
+    podeVer,
+    podeVerObservacao,
+    filtroFuncionarioId,
+    filtroInicio,
+    filtroFim,
+    filtroTipo,
+    rondaIdEfetivo,
+    observacaoEfetiva,
+    pagina,
+    recarga,
+  ]);
 
   async function handleFinalizar(rondaId: number) {
     if (!sessao) return;
@@ -154,7 +192,7 @@ export default function RondasPage() {
     setFinalizandoId(rondaId);
     try {
       await finalizarRonda(sessao.token, rondaId);
-      await carregar();
+      setRecarga((n) => n + 1);
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Falha ao encerrar a ronda.");
     } finally {
@@ -214,7 +252,7 @@ export default function RondasPage() {
             type="datetime-local"
             value={filtroInicio}
             onChange={(e) => {
-              setFiltroInicio(e.target.value);
+              setFiltroInicioEscolhido(e.target.value);
               setPagina(0);
             }}
             className="rounded-lg border-0 bg-slate-100 px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -232,6 +270,48 @@ export default function RondasPage() {
             className="rounded-lg border-0 bg-slate-100 px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">Tipo</label>
+          <select
+            value={filtroTipo}
+            onChange={(e) => {
+              setFiltroTipo(e.target.value as TipoRonda | "");
+              setPagina(0);
+            }}
+            className="rounded-lg border-0 bg-slate-100 px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Todos</option>
+            {(Object.keys(TIPO_RONDA_LABEL) as TipoRonda[]).map((tipo) => (
+              <option key={tipo} value={tipo}>
+                {TIPO_RONDA_LABEL[tipo]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">Nº da ronda</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="Ex.: 7"
+            value={rondaIdDigitado}
+            onChange={(e) => setRondaIdDigitado(e.target.value.replace(/\D/g, "").slice(0, 9))}
+            className="w-28 rounded-lg border-0 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        {podeVerObservacao && (
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">Observação</label>
+            <input
+              type="text"
+              placeholder="Buscar no texto do rondista"
+              value={observacaoDigitada}
+              maxLength={RONDA_OBSERVACAO_MAX}
+              onChange={(e) => setObservacaoDigitada(e.target.value)}
+              className="w-64 rounded-lg border-0 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        )}
       </div>
 
       {resumo && (
@@ -270,11 +350,30 @@ export default function RondasPage() {
                 Ronda #{r.id}
                 {r.funcionarioNome ? ` — ${r.funcionarioNome}` : ""}
               </p>
-              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE_CLASSES[r.status]}`}>
-                {RONDA_STATUS_LABEL[r.status]}
-              </span>
+              <div className="flex items-center gap-2">
+                {/* Ícone pra perfil completo e pro próprio rondista (lembrete pra ele), e só
+                    quando ele escreveu algo - o backend já manda `observacao` `null` pro
+                    morador (ver `RondaResponse`). */}
+                {r.observacao && (
+                  <button
+                    type="button"
+                    title="Ver observação do rondista"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setObservacaoAberta({ rondaId: r.id, texto: r.observacao! });
+                    }}
+                    className="text-slate-400 hover:text-slate-700"
+                  >
+                    <IconeOlho className="h-5 w-5" />
+                  </button>
+                )}
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE_CLASSES[r.status]}`}>
+                  {RONDA_STATUS_LABEL[r.status]}
+                </span>
+              </div>
             </div>
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+              <span>Tipo: {r.tipo ? TIPO_RONDA_LABEL[r.tipo] : "—"}</span>
               <span>Início: {formatarDataHora(r.iniciadaEm)}</span>
               <span>Fim: {r.finalizadaEm ? formatarDataHora(r.finalizadaEm) : "—"}</span>
               <span>Duração: {formatarDuracaoSegundos(duracaoDaRonda(r))}</span>
@@ -297,7 +396,9 @@ export default function RondasPage() {
             )}
           </div>
         ))}
-        {rondas?.length === 0 && <p className="text-center text-sm text-slate-500">Nenhuma ronda no período.</p>}
+        {rondas?.length === 0 && (
+          <p className="text-center text-sm text-slate-500">Nenhuma ronda encontrada com esses filtros.</p>
+        )}
       </div>
 
       {totalPaginas > 1 && (
@@ -306,7 +407,7 @@ export default function RondasPage() {
             Anterior
           </Button>
           <span className="text-sm text-slate-500">
-            {pagina + 1} / {totalPaginas}
+            Página {pagina + 1} de {totalPaginas} · {totalItens} rondas
           </span>
           <Button
             variant="secondary"
@@ -315,6 +416,28 @@ export default function RondasPage() {
           >
             Próxima
           </Button>
+        </div>
+      )}
+
+      {observacaoAberta && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+          onClick={() => setObservacaoAberta(null)}
+        >
+          <div className="w-full max-w-sm rounded-lg bg-white p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-medium text-slate-700">Ronda #{observacaoAberta.rondaId} — observação do rondista</p>
+              <button
+                type="button"
+                onClick={() => setObservacaoAberta(null)}
+                title="Fechar"
+                className="text-slate-400 hover:text-slate-600"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="whitespace-pre-wrap break-words text-sm text-slate-800">{observacaoAberta.texto}</p>
+          </div>
         </div>
       )}
 
@@ -330,7 +453,7 @@ export default function RondasPage() {
               <p className="text-sm font-medium text-slate-700">
                 Ronda #{rondaDetalhe.id}
                 {rondaDetalhe.funcionarioNome ? ` — ${rondaDetalhe.funcionarioNome}` : ""} —{" "}
-                {formatarDataHora(rondaDetalhe.iniciadaEm)}
+                {formatarDataHora(rondaDetalhe.iniciadaEm)} ({Math.floor(duracaoDaRonda(rondaDetalhe) / 60)}min)
               </p>
               <button
                 type="button"
@@ -341,7 +464,15 @@ export default function RondasPage() {
                 ✕
               </button>
             </div>
+            <p className="mb-3 text-xs text-slate-500">
+              Tipo: {rondaDetalhe.tipo ? TIPO_RONDA_LABEL[rondaDetalhe.tipo] : "—"}
+              {rondaDetalhe.observacao ? ` · ${rondaDetalhe.observacao}` : ""}
+            </p>
             <MapaRonda pontos={rondaDetalhe.pontos} className="h-72 w-full rounded-lg border border-slate-200" />
+            <p className="mt-2 text-xs text-slate-400">
+              Trecho tracejado = sem registro de GPS (tela bloqueada ou sem sinal) - a linha reta só liga o último
+              ponto antes ao primeiro depois, não é o caminho percorrido.
+            </p>
           </div>
         </div>
       )}
