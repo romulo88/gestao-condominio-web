@@ -2067,8 +2067,13 @@ function KanbanPageInner() {
 
             <p className="mt-3 text-xs italic text-slate-400">
               Aberta por {demandaDetalhe.identificarSolicitante ? demandaDetalhe.solicitanteNome : "Anônimo"} (
-              {demandaDetalhe.solicitanteTipo === "morador" ? "morador" : "funcionário"}) em{" "}
-              {formatarData(demandaDetalhe.createdAt)}
+              {demandaDetalhe.solicitanteTipo === "morador"
+                ? "morador"
+                : demandaDetalhe.solicitantePerfil
+                  ? PERFIL_LABEL[demandaDetalhe.solicitantePerfil]
+                  : demandaDetalhe.solicitanteFuncao ?? "funcionário"}
+              ) em {formatarData(demandaDetalhe.createdAt)}
+              {demandaDetalhe.rondaId && <> · durante a ronda #{demandaDetalhe.rondaId}</>}
               {demandaDetalhe.statusKanbanNome && (
                 <>
                   {" "}

@@ -1200,6 +1200,19 @@ export type DemandaResponse = {
   podeAcompanhar: boolean;
   /** true quando o morador logado marcou "Acompanhar" nessa demanda - reflete o check. */
   acompanhando: boolean;
+  /** Id da ronda durante a qual a demanda foi aberta (botão "Nova demanda" na tela de
+   * ronda) - pra funcionário saber que veio de um rondista. `null` quando não nasceu numa
+   * ronda, e sempre `null` pra morador (o backend redige). */
+  rondaId: number | null;
+  /** Perfil do funcionário solicitante NESTE condomínio (pedido do Romulo: mostrar quem é,
+   * além de "(funcionário)") - `null` quando é morador, quando ele não tem perfil (só
+   * `solicitanteFuncao`, se houver), ou nos endpoints que não calculam em lote (ex.:
+   * `criar`/`aprovar`/etc. - mesmo espírito de `statusKanbanDesde`). */
+  solicitantePerfil: FuncionarioPerfil | null;
+  /** Função do funcionário solicitante (texto livre, ex.: "Zelador") - vem `null` quando
+   * ele TEM `solicitantePerfil` (o backend já resolve a prioridade, a tela não precisa
+   * repetir a regra). Mesma regra de cálculo em lote de `solicitantePerfil`. */
+  solicitanteFuncao: string | null;
   /** Desde quando a demanda está na coluna ATUAL dela (a transição mais recente do
    * histórico) - alimenta o KPI de "dias parado" do Kanban. Null enquanto não tem coluna
    * (statusKanbanId também null) ou nos endpoints que não calculam isso em lote (ex:
@@ -1270,6 +1283,7 @@ export async function listarPaginaDemandas(
   token: string,
   filtros: {
     busca?: string;
+    demandaId?: number;
     status?: string;
     notaNaoLida?: boolean;
     etapaVencida?: boolean;
@@ -1280,6 +1294,7 @@ export async function listarPaginaDemandas(
 ): Promise<DemandaPaginaResponse> {
   const params = new URLSearchParams();
   if (filtros.busca?.trim()) params.set("busca", filtros.busca.trim());
+  if (filtros.demandaId) params.set("demandaId", String(filtros.demandaId));
   if (filtros.status) params.set("status", filtros.status);
   if (filtros.notaNaoLida) params.set("notaNaoLida", "true");
   if (filtros.etapaVencida) params.set("etapaVencida", "true");

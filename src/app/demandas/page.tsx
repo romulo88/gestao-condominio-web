@@ -192,6 +192,10 @@ function DemandasPageInner() {
   // abaixo), pra não bater uma request por tecla digitada (mesmo padrão usado em
   // `condominios/page.tsx` pra funcionário/morador).
   const [buscaEfetivaDescricao, setBuscaEfetivaDescricao] = useState("");
+  // Filtro por número da demanda (pedido do Romulo: "fácil achar quando alguém falar
+  // apenas o número") - mesmo padrão debounced de `buscaDescricao`, só dígitos.
+  const [buscaNumero, setBuscaNumero] = useState("");
+  const [buscaEfetivaNumero, setBuscaEfetivaNumero] = useState("");
   const [filtroStatus, setFiltroStatus] = useState<string | null>(
     notaNaoLidaViaUrl || etapaVencidaViaUrl ? "" : null,
   );
@@ -318,6 +322,15 @@ function DemandasPageInner() {
     return () => clearTimeout(timer);
   }, [buscaDescricao]);
 
+  // Mesmo debounce, agora pro número da demanda.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setBuscaEfetivaNumero(buscaNumero);
+      setPaginaDemanda(0);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [buscaNumero]);
+
   // Pedido do Romulo: as colunas do Kanban entraram como opção no filtro de status (ver
   // `<select>` mais abaixo) - por isso passou a carregar pros dois papéis, não só
   // funcionário (o endpoint já filtra a coluna oculta pro morador do lado do backend,
@@ -421,6 +434,7 @@ function DemandasPageInner() {
     if (!sessao) return;
     listarPaginaDemandas(sessao.token, {
       busca: buscaEfetivaDescricao,
+      demandaId: buscaEfetivaNumero ? Number(buscaEfetivaNumero) : undefined,
       status: filtroStatusEfetivo || undefined,
       notaNaoLida: filtroNotaNaoLida,
       etapaVencida: filtroEtapaVencida,
@@ -442,6 +456,7 @@ function DemandasPageInner() {
     let cancelado = false;
     listarPaginaDemandas(sessao.token, {
       busca: buscaEfetivaDescricao,
+      demandaId: buscaEfetivaNumero ? Number(buscaEfetivaNumero) : undefined,
       status: filtroStatusEfetivo || undefined,
       notaNaoLida: filtroNotaNaoLida,
       etapaVencida: filtroEtapaVencida,
@@ -466,6 +481,7 @@ function DemandasPageInner() {
   }, [
     sessao,
     buscaEfetivaDescricao,
+    buscaEfetivaNumero,
     filtroStatusEfetivo,
     filtroNotaNaoLida,
     filtroEtapaVencida,
@@ -1074,6 +1090,14 @@ function DemandasPageInner() {
       )}
 
       <div className="mt-4 flex gap-3">
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="Nº da demanda"
+          value={buscaNumero}
+          onChange={(e) => setBuscaNumero(e.target.value.replace(/\D/g, "").slice(0, 9))}
+          className="w-32 rounded-lg border-0 bg-slate-100 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
         <Input
           placeholder="Buscar por descrição"
           value={buscaDescricao}
@@ -1296,7 +1320,13 @@ function DemandasPageInner() {
                 <Markdown texto={d.descricao} className="mt-2 text-sm text-slate-600" />
                 <p className="mt-2 text-xs italic text-slate-400">
                   Aberta por {d.identificarSolicitante ? d.solicitanteNome : "Anônimo"} (
-                  {d.solicitanteTipo === "morador" ? "morador" : "funcionário"}) em {formatarData(d.createdAt)}
+                  {d.solicitanteTipo === "morador"
+                    ? "morador"
+                    : d.solicitantePerfil
+                      ? PERFIL_LABEL[d.solicitantePerfil]
+                      : d.solicitanteFuncao ?? "funcionário"}
+                  ) em {formatarData(d.createdAt)}
+                  {d.rondaId && <> · durante a ronda #{d.rondaId}</>}
                   {d.statusKanbanNome && (
                     <>
                       {" "}
