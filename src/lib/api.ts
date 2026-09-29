@@ -2187,6 +2187,9 @@ export type EventoVeiculoResponse = {
   liberadoEm: string | null;
 };
 
+/** `fotoUrl` (pedido do Romulo: registro de segurança, opcional, tirada pelo porteiro ao
+ * conferir o documento) só vem preenchida pra porteiro/perfil completo - nunca pro morador,
+ * mesmo dono do evento. */
 export type EventoPessoaResponse = {
   id: number;
   nome: string;
@@ -2194,6 +2197,7 @@ export type EventoPessoaResponse = {
   liberado: boolean;
   liberadoPorNome: string | null;
   liberadoEm: string | null;
+  fotoUrl: string | null;
 };
 
 /** `espacoComumId`/`espacoComumNome` nulos = local é a própria unidade do morador. */
@@ -2312,6 +2316,32 @@ export async function liberarVeiculoEvento(token: string, eventoId: number, veic
 export async function liberarPessoaEvento(token: string, eventoId: number, pessoaId: number): Promise<EventoResponse> {
   const res = await fetch(`${API_URL}/api/eventos/${eventoId}/pessoas/${pessoaId}/liberar`, {
     method: "PATCH",
+    headers: authHeaders(token),
+  });
+  return parseOrThrow<EventoResponse>(res);
+}
+
+/** Registro de segurança opcional (pedido do Romulo) - só porteiro/perfil completo. Envia
+ * (ou substitui) a foto de uma pessoa do evento. */
+export async function uploadFotoPessoaEvento(
+  token: string,
+  eventoId: number,
+  pessoaId: number,
+  arquivo: File,
+): Promise<EventoResponse> {
+  const corpo = new FormData();
+  corpo.append("arquivo", arquivo);
+  const res = await fetch(`${API_URL}/api/eventos/${eventoId}/pessoas/${pessoaId}/foto`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: corpo,
+  });
+  return parseOrThrow<EventoResponse>(res);
+}
+
+export async function removerFotoPessoaEvento(token: string, eventoId: number, pessoaId: number): Promise<EventoResponse> {
+  const res = await fetch(`${API_URL}/api/eventos/${eventoId}/pessoas/${pessoaId}/foto`, {
+    method: "DELETE",
     headers: authHeaders(token),
   });
   return parseOrThrow<EventoResponse>(res);

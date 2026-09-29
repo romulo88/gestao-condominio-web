@@ -1,9 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { EventoResponse, ehPerfilRestrito, liberarPessoaEvento, liberarVeiculoEvento, listarPaginaEventos } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import {
+  EventoPessoaResponse,
+  EventoResponse,
+  ehPerfilRestrito,
+  liberarPessoaEvento,
+  liberarVeiculoEvento,
+  listarPaginaEventos,
+  removerFotoPessoaEvento,
+  uploadFotoPessoaEvento,
+  urlImagem,
+} from "@/lib/api";
+import { separarImagensValidas } from "@/lib/imagem-upload";
 import { useSessaoObrigatoria } from "@/lib/use-sessao-obrigatoria";
 import { AppShell } from "@/components/app-shell";
+import { Button } from "@/components/ui";
 
 /** Data de hoje no fuso do usuário, yyyy-MM-dd (mesmo formato do backend/`<input type="date">`). */
 function hojeISO(): string {
@@ -38,6 +50,13 @@ export default function PortariaPage() {
   const [eventosDoMes, setEventosDoMes] = useState<EventoResponse[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [alternandoId, setAlternandoId] = useState<number | null>(null);
+
+  // Modal de foto (pedido do Romulo: registro de segurança opcional, tirada ao conferir o
+  // documento - clicar no nome da pessoa abre isso, independente do checkbox de liberar).
+  const [fotoModalPessoa, setFotoModalPessoa] = useState<{ eventoId: number; pessoa: EventoPessoaResponse } | null>(null);
+  const [enviandoFoto, setEnviandoFoto] = useState(false);
+  const [erroFoto, setErroFoto] = useState<string | null>(null);
+  const fotoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!sessao || !podeVerPortaria) return;
@@ -85,6 +104,67 @@ export default function PortariaPage() {
       setErro(err instanceof Error ? err.message : "Falha ao liberar.");
     } finally {
       setAlternandoId(null);
+    }
+  }
+
+  function abrirFotoModal(eventoId: number, pessoa: EventoPessoaResponse) {
+    setErroFoto(null);
+    setFotoModalPessoa({ eventoId, pessoa });
+  }
+
+  function fecharFotoModal() {
+    setFotoModalPessoa(null);
+    setErroFoto(null);
+  }
+
+  /** Substitui a pessoa dentro do modal aberto pela versão nova (que veio junto do evento
+   * atualizado na resposta) - mantém a prévia da foto em sincronia sem fechar o modal. */
+  function atualizarFotoModal(eventoId: number, atualizado: EventoResponse) {
+    const pessoaAtualizada = atualizado.pessoas.find((p) => p.id === fotoModalPessoa?.pessoa.id);
+    if (pessoaAtualizada) setFotoModalPessoa({ eventoId, pessoa: pessoaAtualizada });
+  }
+
+  async function handleSelecionarFoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const arquivo = e.target.files?.[0] ?? null;
+    e.target.value = ""; // permite escolher o mesmo arquivo de novo depois
+    if (!arquivo || !sessao || !fotoModalPessoa) return;
+
+    const { validos, rejeitados } = separarImagensValidas([arquivo]);
+    if (validos.length === 0) {
+      setErroFoto(rejeitados[0] ?? "Arquivo inválido.");
+      return;
+    }
+
+    setErroFoto(null);
+    setEnviandoFoto(true);
+    try {
+      const atualizado = await uploadFotoPessoaEvento(
+        sessao.token,
+        fotoModalPessoa.eventoId,
+        fotoModalPessoa.pessoa.id,
+        arquivo,
+      );
+      atualizarEventoLocal(atualizado);
+      atualizarFotoModal(fotoModalPessoa.eventoId, atualizado);
+    } catch (err) {
+      setErroFoto(err instanceof Error ? err.message : "Falha ao enviar foto.");
+    } finally {
+      setEnviandoFoto(false);
+    }
+  }
+
+  async function handleRemoverFoto() {
+    if (!sessao || !fotoModalPessoa) return;
+    setErroFoto(null);
+    setEnviandoFoto(true);
+    try {
+      const atualizado = await removerFotoPessoaEvento(sessao.token, fotoModalPessoa.eventoId, fotoModalPessoa.pessoa.id);
+      atualizarEventoLocal(atualizado);
+      atualizarFotoModal(fotoModalPessoa.eventoId, atualizado);
+    } catch (err) {
+      setErroFoto(err instanceof Error ? err.message : "Falha ao remover foto.");
+    } finally {
+      setEnviandoFoto(false);
     }
   }
 
@@ -219,21 +299,27 @@ export default function PortariaPage() {
                   <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Pessoas</p>
                   <div className="mt-1 space-y-1">
                     {evento.pessoas.map((p) => (
-                      <label key={p.id} className="flex items-center gap-2 text-sm text-slate-900">
+                      <div key={p.id} className="flex items-center gap-2 text-sm text-slate-900">
                         <input
                           type="checkbox"
                           checked={p.liberado}
                           disabled={alternandoId === p.id}
                           onChange={() => handleLiberarPessoa(evento.id, p.id)}
-                          className="h-4 w-4 rounded border-slate-300"
+                          className="h-4 w-4 shrink-0 rounded border-slate-300"
                         />
-                        <span className={p.liberado ? "line-through text-slate-400" : ""}>
+                        <button
+                          type="button"
+                          onClick={() => abrirFotoModal(evento.id, p)}
+                          title="Ver/tirar foto"
+                          className={`text-left hover:underline ${p.liberado ? "line-through text-slate-400" : "text-blue-700"}`}
+                        >
                           {p.nome} — {p.documento}
-                        </span>
+                          {p.fotoUrl && <span className="ml-1 text-xs text-emerald-600">(com foto)</span>}
+                        </button>
                         {p.liberado && p.liberadoPorNome && (
                           <span className="text-xs text-slate-400">— liberado por {p.liberadoPorNome}</span>
                         )}
-                      </label>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -242,6 +328,65 @@ export default function PortariaPage() {
           </div>
         </div>
       </div>
+
+      {fotoModalPessoa && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+          onClick={fecharFotoModal}
+        >
+          <div className="w-full max-w-sm rounded-lg bg-white p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-sm font-semibold text-slate-900">{fotoModalPessoa.pessoa.nome}</h2>
+              <button type="button" onClick={fecharFotoModal} className="shrink-0 text-slate-400 hover:text-slate-600">
+                ✕
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-slate-400">{fotoModalPessoa.pessoa.documento}</p>
+
+            <div className="mt-4 flex items-center justify-center overflow-hidden rounded-lg bg-slate-100" style={{ minHeight: 200 }}>
+              {fotoModalPessoa.pessoa.fotoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- servido pelo backend com token na query string
+                <img
+                  src={urlImagem(fotoModalPessoa.pessoa.fotoUrl, sessao.token)}
+                  alt={`Foto de ${fotoModalPessoa.pessoa.nome}`}
+                  className="max-h-80 w-full object-contain"
+                />
+              ) : (
+                <p className="p-8 text-center text-sm text-slate-400">Sem foto ainda</p>
+              )}
+            </div>
+
+            {erroFoto && <p className="mt-2 text-sm text-red-600">{erroFoto}</p>}
+
+            <div className="mt-4 flex justify-between gap-2">
+              {fotoModalPessoa.pessoa.fotoUrl ? (
+                <button
+                  type="button"
+                  onClick={handleRemoverFoto}
+                  disabled={enviandoFoto}
+                  className="text-xs text-slate-400 hover:text-red-600 disabled:opacity-50"
+                >
+                  Remover foto
+                </button>
+              ) : (
+                <span />
+              )}
+              <Button type="button" onClick={() => fotoInputRef.current?.click()} disabled={enviandoFoto}>
+                {enviandoFoto ? "Enviando..." : fotoModalPessoa.pessoa.fotoUrl ? "Trocar foto" : "Tirar foto"}
+              </Button>
+            </div>
+
+            <input
+              ref={fotoInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleSelecionarFoto}
+              className="hidden"
+            />
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }
