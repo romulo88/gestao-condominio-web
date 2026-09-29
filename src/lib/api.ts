@@ -36,7 +36,8 @@ export type FuncionarioPerfil =
   | "supervisor"
   | "encarregado"
   | "rondista"
-  | "agente_convivio";
+  | "agente_convivio"
+  | "porteiro";
 export type CondominioTipo = "apartamento" | "casas";
 export type Situacao = "ativo" | "inativo";
 
@@ -47,13 +48,15 @@ export const PERFIL_LABEL: Record<FuncionarioPerfil, string> = {
   encarregado: "Encarregado",
   rondista: "Rondista",
   agente_convivio: "Agente de convívio",
+  porteiro: "Porteiro",
 };
 
-/** Perfil de acesso restrito (rondista/agente de convívio, pedido do Romulo) - só cadastra
- * demanda e acompanha as próprias/onde é responsável, sem Kanban nem poder de decisão (ver
- * `AppShell`/`demandas/page.tsx`). Espelha `FuncionarioPerfil.acessoRestrito` no backend. */
+/** Perfil de acesso restrito (rondista/agente de convívio/porteiro, pedido do Romulo) - só
+ * cadastra demanda e acompanha as próprias/onde é responsável, sem Kanban nem poder de
+ * decisão (ver `AppShell`/`demandas/page.tsx`). Espelha `FuncionarioPerfil.acessoRestrito`
+ * no backend. */
 export function ehPerfilRestrito(perfil: FuncionarioPerfil | null): boolean {
-  return perfil === "rondista" || perfil === "agente_convivio";
+  return perfil === "rondista" || perfil === "agente_convivio" || perfil === "porteiro";
 }
 
 export type ContextoDto = {
@@ -2125,4 +2128,191 @@ export async function buscarResumoRondas(token: string, filtros: FiltrosRondas):
 export async function buscarRonda(token: string, id: number): Promise<RondaDetalheResponse> {
   const res = await fetch(`${API_URL}/api/rondas/${id}`, { headers: authHeaders(token) });
   return parseOrThrow<RondaDetalheResponse>(res);
+}
+
+// ---------------------------------------------------------------------------
+// ESPAÇOS COMUNS (aba "Espaços de Lazer" do cadastro de condomínio, pedido do Romulo)
+// ---------------------------------------------------------------------------
+
+export type EspacoComumResponse = {
+  id: number;
+  condominioId: number;
+  nome: string;
+  situacao: Situacao;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Funcionário/administrador veem todos (ativos ou não); morador (escolhendo o local de
+ * um Evento) só recebe os ativos - filtro já aplicado no backend. */
+export async function listarEspacosComuns(token: string, condominioId: number): Promise<EspacoComumResponse[]> {
+  const res = await fetch(`${API_URL}/api/espacos-comuns?condominioId=${condominioId}`, { headers: authHeaders(token) });
+  return parseOrThrow<EspacoComumResponse[]>(res);
+}
+
+export async function criarEspacoComum(
+  token: string,
+  request: { condominioId: number; nome: string },
+): Promise<EspacoComumResponse> {
+  const res = await fetch(`${API_URL}/api/espacos-comuns`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(request),
+  });
+  return parseOrThrow<EspacoComumResponse>(res);
+}
+
+export async function atualizarEspacoComum(
+  token: string,
+  id: number,
+  request: { nome: string; situacao?: Situacao },
+): Promise<EspacoComumResponse> {
+  const res = await fetch(`${API_URL}/api/espacos-comuns/${id}`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify(request),
+  });
+  return parseOrThrow<EspacoComumResponse>(res);
+}
+
+// ---------------------------------------------------------------------------
+// EVENTOS (cadastro pelo morador + calendário/liberação da portaria, pedido do Romulo)
+// ---------------------------------------------------------------------------
+
+export type EventoVeiculoResponse = {
+  id: number;
+  placa: string;
+  liberado: boolean;
+  liberadoPorNome: string | null;
+  liberadoEm: string | null;
+};
+
+export type EventoPessoaResponse = {
+  id: number;
+  nome: string;
+  documento: string;
+  liberado: boolean;
+  liberadoPorNome: string | null;
+  liberadoEm: string | null;
+};
+
+/** `espacoComumId`/`espacoComumNome` nulos = local é a própria unidade do morador. */
+export type EventoResponse = {
+  id: number;
+  condominioId: number;
+  espacoComumId: number | null;
+  espacoComumNome: string | null;
+  motivo: string;
+  data: string;
+  horario: string | null;
+  moradorNome: string;
+  unidade: string | null;
+  veiculos: EventoVeiculoResponse[];
+  pessoas: EventoPessoaResponse[];
+  createdAt: string;
+};
+
+export type EventoCreateRequest = {
+  espacoComumId?: number | null;
+  motivo: string;
+  data: string;
+  horario?: string | null;
+  veiculos: { placa: string }[];
+  pessoas: { nome: string; documento: string }[];
+};
+
+/** Só morador. 400 se a data for no passado ou não vier nenhuma pessoa. */
+export async function criarEvento(token: string, request: EventoCreateRequest): Promise<EventoResponse> {
+  const res = await fetch(`${API_URL}/api/eventos`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(request),
+  });
+  return parseOrThrow<EventoResponse>(res);
+}
+
+/** Diferente de {@link EventoCreateRequest}: cada item de `veiculos`/`pessoas` tem um `id`
+ * opcional - nulo = item novo, preenchido = item existente a atualizar. O backend
+ * sincroniza a lista (atualiza/cria/apaga) em vez de substituir tudo, preservando intacto
+ * qualquer item já liberado pela portaria mesmo que não venha na lista. `espacoComumId`/
+ * `data` só têm efeito se a data ATUAL do evento (antes desta edição) ainda não é hoje. */
+export type EventoUpdateRequest = {
+  espacoComumId?: number | null;
+  motivo: string;
+  data: string;
+  horario?: string | null;
+  veiculos: { id?: number; placa: string }[];
+  pessoas: { id?: number; nome: string; documento: string }[];
+};
+
+export async function atualizarEvento(
+  token: string,
+  id: number,
+  request: EventoUpdateRequest,
+): Promise<EventoResponse> {
+  const res = await fetch(`${API_URL}/api/eventos/${id}`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify(request),
+  });
+  return parseOrThrow<EventoResponse>(res);
+}
+
+/** Só o próprio morador, e só antes da data do evento passar e antes de qualquer item já
+ * liberado pela portaria (403/409 se não). */
+export async function excluirEvento(token: string, id: number): Promise<void> {
+  const res = await fetch(`${API_URL}/api/eventos/${id}`, { method: "DELETE", headers: authHeaders(token) });
+  if (!res.ok) {
+    await parseOrThrow(res);
+  }
+}
+
+/** "Meus eventos" do morador logado, mais recente primeiro. */
+export async function listarMeusEventos(token: string): Promise<EventoResponse[]> {
+  const res = await fetch(`${API_URL}/api/eventos/meus`, { headers: authHeaders(token) });
+  return parseOrThrow<EventoResponse[]>(res);
+}
+
+export type FiltrosEventos = {
+  dataInicio?: string;
+  dataFim?: string;
+  espacoComumId?: number;
+};
+
+/** Calendário da tela Portaria - só perfil `porteiro` ou perfil completo. */
+export async function listarPaginaEventos(
+  token: string,
+  filtros: FiltrosEventos & { pagina?: number; tamanho?: number },
+): Promise<PaginaResponse<EventoResponse>> {
+  const params = new URLSearchParams();
+  if (filtros.dataInicio) params.set("dataInicio", filtros.dataInicio);
+  if (filtros.dataFim) params.set("dataFim", filtros.dataFim);
+  if (filtros.espacoComumId) params.set("espacoComumId", String(filtros.espacoComumId));
+  params.set("pagina", String(filtros.pagina ?? 0));
+  params.set("tamanho", String(filtros.tamanho ?? 20));
+  const res = await fetch(`${API_URL}/api/eventos/pagina?${params}`, { headers: authHeaders(token) });
+  return parseOrThrow<PaginaResponse<EventoResponse>>(res);
+}
+
+export async function buscarEvento(token: string, id: number): Promise<EventoResponse> {
+  const res = await fetch(`${API_URL}/api/eventos/${id}`, { headers: authHeaders(token) });
+  return parseOrThrow<EventoResponse>(res);
+}
+
+/** Toggle - chamar de novo desfaz a liberação. Devolve o evento inteiro atualizado. */
+export async function liberarVeiculoEvento(token: string, eventoId: number, veiculoId: number): Promise<EventoResponse> {
+  const res = await fetch(`${API_URL}/api/eventos/${eventoId}/veiculos/${veiculoId}/liberar`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+  });
+  return parseOrThrow<EventoResponse>(res);
+}
+
+/** Toggle - chamar de novo desfaz a liberação. Devolve o evento inteiro atualizado. */
+export async function liberarPessoaEvento(token: string, eventoId: number, pessoaId: number): Promise<EventoResponse> {
+  const res = await fetch(`${API_URL}/api/eventos/${eventoId}/pessoas/${pessoaId}/liberar`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+  });
+  return parseOrThrow<EventoResponse>(res);
 }

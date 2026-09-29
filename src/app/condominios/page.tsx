@@ -8,6 +8,7 @@ import {
   atualizarAviso,
   atualizarBloco,
   atualizarCondominio,
+  atualizarEspacoComum,
   atualizarEtiqueta,
   atualizarMensagemRapida,
   atualizarStatusKanban,
@@ -23,6 +24,7 @@ import {
   criarAviso,
   criarBloco,
   criarCondominio,
+  criarEspacoComum,
   criarEtiqueta,
   criarFuncionario,
   criarMensagemRapida,
@@ -35,6 +37,7 @@ import {
   desativarVinculoFuncionario,
   desativarVinculoMorador,
   desfixarAvisoNoTopo,
+  EspacoComumResponse,
   EtiquetaResponse,
   excluirMensagemRapida,
   excluirStatusKanban,
@@ -45,6 +48,7 @@ import {
   listarAvisosDoCondominio,
   listarBlocos,
   listarCondominios,
+  listarEspacosComuns,
   listarEtiquetas,
   listarMensagensRapidas,
   listarPaginaFuncionarios,
@@ -126,6 +130,7 @@ export default function CondominiosPage() {
     | "avisos"
     | "kanban"
     | "etiquetas"
+    | "espacos-lazer"
     | "mensagens-rapidas"
   >("condominio");
   const [campos, setCampos] = useState(FORM_VAZIO);
@@ -278,6 +283,18 @@ export default function CondominiosPage() {
   const [etiquetaEditando, setEtiquetaEditando] = useState<number | null>(null);
   const [edicaoEtiqueta, setEdicaoEtiqueta] = useState({ descricao: "", cor: "#2F80ED", visivelMorador: true });
   const [salvandoEdicaoEtiqueta, setSalvandoEdicaoEtiqueta] = useState(false);
+
+  // Aba "Espaços de Lazer" (pedido do Romulo: quiosques, salão gourmet, salão de festas -
+  // cadastrável sem depender de código, porque cada condomínio tem um conjunto diferente).
+  // Mesmo padrão de Etiqueta, sem cor/visibilidade - só nome + ativo/inativo.
+  const [espacos, setEspacos] = useState<EspacoComumResponse[] | null>(null);
+  const [erroEspacos, setErroEspacos] = useState<string | null>(null);
+  const [novoEspacoNome, setNovoEspacoNome] = useState("");
+  const [salvandoEspaco, setSalvandoEspaco] = useState(false);
+  const [espacoEditando, setEspacoEditando] = useState<number | null>(null);
+  const [edicaoEspacoNome, setEdicaoEspacoNome] = useState("");
+  const [salvandoEdicaoEspaco, setSalvandoEdicaoEspaco] = useState(false);
+  const [alternandoSituacaoEspacoId, setAlternandoSituacaoEspacoId] = useState<number | null>(null);
 
   const [mensagensRapidas, setMensagensRapidas] = useState<MensagemRapidaResponse[] | null>(null);
   const [erroMensagensRapidas, setErroMensagensRapidas] = useState<string | null>(null);
@@ -466,6 +483,23 @@ export default function CondominiosPage() {
   }, [sessao, condominioIdAtual, aba]);
 
   useEffect(() => {
+    if (!sessao || !condominioIdAtual || aba !== "espacos-lazer") return;
+    let cancelado = false;
+    listarEspacosComuns(sessao.token, condominioIdAtual)
+      .then((lista) => {
+        if (cancelado) return;
+        setEspacos(lista);
+        setErroEspacos(null);
+      })
+      .catch((err) => {
+        if (!cancelado) setErroEspacos(err instanceof Error ? err.message : "Falha ao carregar.");
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [sessao, condominioIdAtual, aba]);
+
+  useEffect(() => {
     if (!sessao || !condominioIdAtual || aba !== "mensagens-rapidas") return;
     let cancelado = false;
     listarMensagensRapidas(sessao.token, condominioIdAtual)
@@ -644,6 +678,9 @@ export default function CondominiosPage() {
     setNovaEtiquetaCor("#2F80ED");
     setNovaEtiquetaVisivelMorador(true);
     setEtiquetaEditando(null);
+    setEspacos(null);
+    setNovoEspacoNome("");
+    setEspacoEditando(null);
     setMensagensRapidas(null);
     setNovaMensagemTexto("");
     setNovaMensagemCarater("positivo");
@@ -1322,6 +1359,61 @@ export default function CondominiosPage() {
     }
   }
 
+  async function handleCriarEspaco(e: React.FormEvent) {
+    e.preventDefault();
+    if (!sessao || !condominioIdAtual) return;
+    setErroEspacos(null);
+    setSalvandoEspaco(true);
+    try {
+      const novo = await criarEspacoComum(sessao.token, { condominioId: condominioIdAtual, nome: novoEspacoNome });
+      setEspacos((atual) => [...(atual ?? []), novo]);
+      setNovoEspacoNome("");
+    } catch (err) {
+      setErroEspacos(err instanceof Error ? err.message : "Falha ao cadastrar espaço.");
+    } finally {
+      setSalvandoEspaco(false);
+    }
+  }
+
+  function abrirEdicaoEspaco(espaco: EspacoComumResponse) {
+    setEspacoEditando(espaco.id);
+    setEdicaoEspacoNome(espaco.nome);
+    setErroEspacos(null);
+  }
+
+  async function handleSalvarEdicaoEspaco(id: number) {
+    if (!sessao) return;
+    setErroEspacos(null);
+    setSalvandoEdicaoEspaco(true);
+    try {
+      const atualizado = await atualizarEspacoComum(sessao.token, id, { nome: edicaoEspacoNome });
+      setEspacos((atual) => atual?.map((e) => (e.id === id ? atualizado : e)) ?? null);
+      setEspacoEditando(null);
+    } catch (err) {
+      setErroEspacos(err instanceof Error ? err.message : "Falha ao salvar.");
+    } finally {
+      setSalvandoEdicaoEspaco(false);
+    }
+  }
+
+  /** Inativar/reativar (sem exclusão física - mesmo espírito de Etiqueta/StatusKanban). */
+  async function handleAlternarSituacaoEspaco(espaco: EspacoComumResponse) {
+    if (!sessao) return;
+    setErroEspacos(null);
+    setAlternandoSituacaoEspacoId(espaco.id);
+    try {
+      const atualizado = await atualizarEspacoComum(sessao.token, espaco.id, {
+        nome: espaco.nome,
+        situacao: espaco.situacao === "ativo" ? "inativo" : "ativo",
+      });
+      setEspacos((atual) => atual?.map((e) => (e.id === espaco.id ? atualizado : e)) ?? null);
+    } catch (err) {
+      setErroEspacos(err instanceof Error ? err.message : "Falha ao salvar.");
+    } finally {
+      setAlternandoSituacaoEspacoId(null);
+    }
+  }
+
   async function handleCriarMensagemRapida(e: React.FormEvent) {
     e.preventDefault();
     if (!sessao || !condominioIdAtual) return;
@@ -1521,6 +1613,8 @@ export default function CondominiosPage() {
   // critério de quem pode criar direto no card do Kanban) ou administrador (gerenciando
   // um condomínio que não é o seu, como nas outras abas).
   const podeCriarEtiqueta = ehAdministrador || (ehFuncionario && sessao.condominioId === condominioIdAtual);
+  // Espaço de lazer: mesmo critério de Etiqueta - qualquer funcionário deste condomínio ou administrador.
+  const podeCriarEspaco = ehAdministrador || (ehFuncionario && sessao.condominioId === condominioIdAtual);
   // Mensagem rápida: mesmo critério de Etiqueta - qualquer funcionário deste condomínio
   // ou administrador (gerenciando um condomínio que não é o seu).
   const podeCriarMensagemRapida = ehAdministrador || (ehFuncionario && sessao.condominioId === condominioIdAtual);
@@ -1608,6 +1702,16 @@ export default function CondominiosPage() {
               } ${!abaCondominioSalvo ? "cursor-not-allowed opacity-50" : ""}`}
             >
               Etiquetas
+            </button>
+            <button
+              onClick={() => abaCondominioSalvo && setAba("espacos-lazer")}
+              disabled={!abaCondominioSalvo}
+              title={!abaCondominioSalvo ? "Salve os dados do condomínio primeiro" : undefined}
+              className={`border-b-2 px-3 pb-2 text-sm font-medium ${
+                aba === "espacos-lazer" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-400"
+              } ${!abaCondominioSalvo ? "cursor-not-allowed opacity-50" : ""}`}
+            >
+              Espaços de Lazer
             </button>
             <button
               onClick={() => abaCondominioSalvo && setAba("mensagens-rapidas")}
@@ -2785,6 +2889,106 @@ export default function CondominiosPage() {
                               >
                                 <IconeLapis className="h-4 w-4" />
                               </button>
+                            )}
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {aba === "espacos-lazer" && condominioIdAtual && (
+            <div className="space-y-4 p-5">
+              <p className="text-xs text-slate-400">
+                Espaços de lazer do condomínio (quiosques, salão gourmet, salão de festas, ...) - opções de
+                local ao morador cadastrar um evento.
+              </p>
+
+              {podeCriarEspaco ? (
+                <form onSubmit={handleCriarEspaco} className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <label className="text-xs text-slate-500">Novo espaço</label>
+                    <Input
+                      required
+                      maxLength={50}
+                      placeholder="ex: Quiosque 1"
+                      value={novoEspacoNome}
+                      onChange={(e) => setNovoEspacoNome(e.target.value)}
+                    />
+                  </div>
+                  <Button type="submit" disabled={salvandoEspaco}>
+                    {salvandoEspaco ? "Adicionando..." : "Adicionar"}
+                  </Button>
+                </form>
+              ) : (
+                <p className="text-xs text-slate-400">
+                  Só funcionário deste condomínio ou administrador pode cadastrar espaço.
+                </p>
+              )}
+
+              <div className="border-t border-slate-100 pt-4">
+                {erroEspacos && <p className="text-sm text-red-600">{erroEspacos}</p>}
+                {espacos === null && !erroEspacos && <p className="text-sm text-slate-500">Carregando...</p>}
+                {espacos?.length === 0 && (
+                  <p className="text-sm text-slate-500">Nenhum espaço cadastrado ainda neste condomínio.</p>
+                )}
+                {espacos && espacos.length > 0 && (
+                  <div className="rounded-lg border border-slate-200">
+                    <div className="border-b border-slate-100 px-4 py-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+                      Espaços de Lazer
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {espacos.map((espaco) =>
+                        espacoEditando === espaco.id ? (
+                          <div key={espaco.id} className="flex items-center gap-2 p-4">
+                            <Input
+                              maxLength={50}
+                              value={edicaoEspacoNome}
+                              onChange={(e) => setEdicaoEspacoNome(e.target.value)}
+                              className="flex-1"
+                            />
+                            <div className="flex shrink-0 gap-2">
+                              <Button type="button" variant="secondary" onClick={() => setEspacoEditando(null)}>
+                                Cancelar
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={() => handleSalvarEdicaoEspaco(espaco.id)}
+                                disabled={salvandoEdicaoEspaco}
+                              >
+                                Salvar
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div key={espaco.id} className="flex items-center justify-between gap-3 p-4">
+                            <span className="flex items-center gap-2">
+                              <span className="text-sm text-slate-900">{espaco.nome}</span>
+                              {espaco.situacao === "inativo" && (
+                                <span className="text-xs text-amber-600">— inativo</span>
+                              )}
+                            </span>
+                            {podeCriarEspaco && (
+                              <span className="flex shrink-0 items-center gap-3">
+                                <button
+                                  onClick={() => handleAlternarSituacaoEspaco(espaco)}
+                                  disabled={alternandoSituacaoEspacoId === espaco.id}
+                                  className="text-xs font-medium text-slate-500 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-30"
+                                >
+                                  {espaco.situacao === "ativo" ? "Inativar" : "Reativar"}
+                                </button>
+                                <button
+                                  onClick={() => abrirEdicaoEspaco(espaco)}
+                                  title="Editar"
+                                  disabled={espacoEditando !== null}
+                                  className="text-slate-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-30"
+                                >
+                                  <IconeLapis className="h-4 w-4" />
+                                </button>
+                              </span>
                             )}
                           </div>
                         ),

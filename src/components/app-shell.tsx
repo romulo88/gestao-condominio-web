@@ -50,6 +50,13 @@ function MenuIconesNav({ sessao }: { sessao: Sessao }) {
   // rondas) - ver `app/rondas/page.tsx` pro recorte de cada um.
   const ehRondista = sessao.tipoPapel === "funcionario" && sessao.perfil === "rondista";
   const podeVerRondas = podeVerKanban || ehRondista;
+  // Feature "Eventos" (pedido do Romulo): morador cadastra o próprio evento (festa/visita);
+  // perfil `porteiro` OU perfil completo vê o calendário e libera pessoa/veículo - mesmo
+  // espírito de `podeVerRondas`, mas `ehPerfilRestrito` já cobre `porteiro`, por isso a
+  // checagem extra (diferente de `podeVerKanban`, que não deve valer aqui - morador não vê
+  // "Portaria").
+  const ehPorteiro = sessao.tipoPapel === "funcionario" && sessao.perfil === "porteiro";
+  const podeVerPortaria = ehPorteiro || (sessao.tipoPapel === "funcionario" && !ehPerfilRestrito(sessao.perfil));
   // Parâmetros gerais do sistema (pedido do Romulo, v147) - configuração do sistema
   // TODO, não de um condomínio específico, por isso não fica junto de "Condomínio" -
   // 100% administrador, nem síndico vê esse link (mesma exclusividade do backend, ver
@@ -67,6 +74,8 @@ function MenuIconesNav({ sessao }: { sessao: Sessao }) {
     ...(podeVerRondas
       ? [{ href: "/rondas", title: "Controle de rondas", label: ehRondista ? "Minhas rondas" : "Rondas" }]
       : []),
+    ...(sessao.tipoPapel === "morador" ? [{ href: "/eventos", title: "Cadastrar evento (festa/visita)", label: "Eventos" }] : []),
+    ...(podeVerPortaria ? [{ href: "/portaria", title: "Calendário de eventos e liberação", label: "Portaria" }] : []),
     ...(podeVerParametros ? [{ href: "/parametros", title: "Parâmetros do sistema", label: "Parâmetros" }] : []),
   ];
 

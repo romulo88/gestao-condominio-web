@@ -83,12 +83,13 @@ export function limparSessao() {
 
 /** Pra onde mandar depois do login (ou ao abrir a raiz já logado): funcionário e morador
  * caem direto no quadro de avisos do condomínio deles - administrador não tem condomínio
- * próprio, então cai na lista de condomínios (é lá que ele gerencia tudo). Exceção (feature
- * "Controle de Rondas", pedido do Romulo): perfil rondista cai direto na tela de ronda -
- * `agente_convivio` (o outro perfil de acesso restrito, que não faz ronda) continua indo
- * pra avisos normalmente. */
+ * próprio, então cai na lista de condomínios (é lá que ele gerencia tudo). Exceções, cada
+ * perfil de "operador de campo" cai direto na própria tela: `rondista` → `/ronda` (feature
+ * "Controle de Rondas"), `porteiro` → `/portaria` (feature "Eventos") - `agente_convivio`
+ * (o outro perfil de acesso restrito) continua indo pra avisos normalmente. */
 export function destinoPosLogin(tipoPapel: TipoPapel, perfil: FuncionarioPerfil | null): string {
   if (tipoPapel === "administrador") return "/condominios";
   if (tipoPapel === "funcionario" && perfil === "rondista") return "/ronda";
+  if (tipoPapel === "funcionario" && perfil === "porteiro") return "/portaria";
   return "/avisos";
 }
