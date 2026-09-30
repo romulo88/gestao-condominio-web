@@ -8,6 +8,7 @@ import {
   labelContexto,
   login,
   selecionarContexto,
+  TermosPendenteResponse,
   trocarSenha,
 } from "@/lib/api";
 import { destinoPosLogin, salvarSessao } from "@/lib/session";
@@ -38,6 +39,7 @@ export default function LoginPage() {
   const [preAuthToken, setPreAuthToken] = useState<string | null>(null);
   const [nome, setNome] = useState<string | null>(null);
   const [ultimoLoginAnterior, setUltimoLoginAnterior] = useState<string | null>(null);
+  const [termosPendente, setTermosPendente] = useState<TermosPendenteResponse | null>(null);
 
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
 
@@ -61,10 +63,18 @@ export default function LoginPage() {
       const resposta = await login(email, senha);
       setNome(resposta.nome);
       setUltimoLoginAnterior(resposta.ultimoLoginAnterior);
+      setTermosPendente(resposta.termosPendente);
       if (resposta.token && resposta.contextos?.length === 1) {
-        // Passa `resposta.ultimoLoginAnterior` direto em vez do estado (que ainda não
-        // atualizou nesse mesmo tick - `setUltimoLoginAnterior` acima é assíncrono).
-        finalizarLogin(resposta.nome, resposta.token, resposta.contextos[0], resposta.ultimoLoginAnterior);
+        // Passa `resposta.ultimoLoginAnterior`/`resposta.termosPendente` direto em vez do
+        // estado (que ainda não atualizou nesse mesmo tick - os `set...` acima são
+        // assíncronos).
+        finalizarLogin(
+          resposta.nome,
+          resposta.token,
+          resposta.contextos[0],
+          resposta.ultimoLoginAnterior,
+          resposta.termosPendente,
+        );
       } else if (resposta.preAuthToken && resposta.contextos) {
         setPreAuthToken(resposta.preAuthToken);
         setContextos(resposta.contextos);
@@ -88,7 +98,7 @@ export default function LoginPage() {
         contexto.condominioId,
         contexto.tipoPapel,
       );
-      finalizarLogin(nome ?? "", resposta.token, contexto, ultimoLoginAnterior);
+      finalizarLogin(nome ?? "", resposta.token, contexto, ultimoLoginAnterior, termosPendente);
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Falha ao escolher contexto.");
     } finally {
@@ -101,6 +111,7 @@ export default function LoginPage() {
     token: string,
     contexto: ContextoDto,
     ultimoLoginAnterior: string | null,
+    termosPendente: TermosPendenteResponse | null,
   ) {
     salvarSessao({
       token,
@@ -110,6 +121,7 @@ export default function LoginPage() {
       condominioId: contexto.condominioId,
       condominioNome: contexto.condominioNome,
       ultimoLoginAnterior,
+      termosPendente,
     });
     router.push(destinoPosLogin(contexto.tipoPapel, contexto.perfil));
   }

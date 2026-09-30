@@ -77,6 +77,13 @@ export function labelContexto(c: ContextoDto): string {
   return `${c.condominioNome} — Morador`;
 }
 
+/** Não nulo quando a pessoa precisa aceitar o termo de responsabilidade (nunca aceitou, ou
+ * aceitou uma versão anterior à vigente) - ver `TermosResponsabilidade` no backend. */
+export type TermosPendenteResponse = {
+  versao: number;
+  texto: string;
+};
+
 export type LoginResponse = {
   pessoaId: number;
   nome: string;
@@ -87,6 +94,7 @@ export type LoginResponse = {
    * pessoa loga) - a tela de login guarda isso na sessão pra usar como "desde quando" no
    * alerta de mudança de status do morador (ver `AlertaMudancasStatus`). */
   ultimoLoginAnterior: string | null;
+  termosPendente: TermosPendenteResponse | null;
 };
 
 export type TokenResponse = {
@@ -194,6 +202,15 @@ export async function trocarContexto(
     body: JSON.stringify({ condominioId, tipoPapel }),
   });
   return parseOrThrow<TokenResponse>(res);
+}
+
+/** Registra que quem está logado aceitou a versão vigente do termo de responsabilidade -
+ * some o aviso bloqueante no frontend (ver `AppShell`). */
+export async function aceitarTermos(token: string): Promise<void> {
+  const res = await fetch(`${API_URL}/api/termos/aceitar`, { method: "POST", headers: authHeaders(token) });
+  if (!res.ok) {
+    await parseOrThrow(res);
+  }
 }
 
 export type CondominioResponse = {
@@ -1876,6 +1893,14 @@ export type ConversaPrivadaDetalheResponse = {
   createdAt: string;
 };
 
+/** Auditoria (pedido do Romulo): nunca traz o conteúdo das mensagens, só quem abriu a
+ * conversa e quando - pra investigar uma suspeita de vazamento. */
+export type ConversaPrivadaVisualizacaoResponse = {
+  nome: string;
+  tipo: "morador" | "funcionario";
+  visualizadoEm: string;
+};
+
 /** Funcionário COM LOGIN (perfil preenchido) do condomínio - alimenta a combo de busca de
  * destinatário POR NOME (pedido do Romulo: "vai ser difícil saber o cpf do funcionário").
  * `funcionarioId` é o identificador mandado de volta em `criarConversaPrivada` (CPF saiu
@@ -1914,6 +1939,16 @@ export async function existePendenciaMensagemPrivada(token: string): Promise<boo
 export async function buscarConversaPrivada(token: string, id: number): Promise<ConversaPrivadaDetalheResponse> {
   const res = await fetch(`${API_URL}/api/conversas-privadas/${id}`, { headers: authHeaders(token) });
   return parseOrThrow<ConversaPrivadaDetalheResponse>(res);
+}
+
+/** Só perfil completo do condomínio (síndico/sub-síndico/supervisor/encarregado), mesmo
+ * sem participar da conversa - ver javadoc de `listarVisualizacoes` no backend. */
+export async function listarVisualizacoesConversaPrivada(
+  token: string,
+  id: number,
+): Promise<ConversaPrivadaVisualizacaoResponse[]> {
+  const res = await fetch(`${API_URL}/api/conversas-privadas/${id}/visualizacoes`, { headers: authHeaders(token) });
+  return parseOrThrow<ConversaPrivadaVisualizacaoResponse[]>(res);
 }
 
 export async function criarConversaPrivada(

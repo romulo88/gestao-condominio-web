@@ -6,10 +6,13 @@ import {
   CandidatoDestinatarioResponse,
   ConversaPrivadaDetalheResponse,
   ConversaPrivadaResumoResponse,
+  ConversaPrivadaVisualizacaoResponse,
   criarConversaPrivada,
+  ehPerfilRestrito,
   enviarMensagemPrivada,
   listarCandidatosMensagemPrivada,
   listarConversasPrivadas,
+  listarVisualizacoesConversaPrivada,
   MensagemPrivadaResponse,
   removerFotoMensagemPrivada,
   uploadFotoMensagemPrivada,
@@ -30,6 +33,56 @@ function formatarDataHora(iso: string): string {
   });
 }
 
+function escaparXml(texto: string): string {
+  return texto.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Marca d'água de segurança (pedido do Romulo): identifica quem está vendo a conversa
+ * agora, pra desestimular print/repasse - se vazar, a foto/print carrega o nome de quem
+ * viu. Não impede print (impossível), só cria rastreabilidade. Ladrilho de SVG repetido via
+ * `background-image` (tila em qualquer altura, diferente de uma grade fixa de `<span>`s) +
+ * `mix-blend-mode: difference` com texto branco - essa combinação fica legível tanto sobre
+ * balão escuro quanto claro sem precisar de duas cores diferentes. `pointer-events-none`
+ * pra nunca bloquear clique nos botões por baixo. */
+function MarcaDaguaMensagens({ texto }: { texto: string }) {
+  // Ladrilho pequeno (220x70, 2 linhas escalonadas) de propósito: um ladrilho grande demais
+  // (testado 280x150) quase não repete numa conversa com só 1-2 mensagens curtas - o
+  // `background-repeat` tila a partir do canto (0,0) do elemento, então se a área visível
+  // for menor que o ladrilho, só um fragmento do texto aparece (bug relatado pelo Romulo:
+  // "a marca d'água não ficou muito visível"). Ladrilho pequeno garante pelo menos 1-2
+  // repetições completas mesmo num balão isolado.
+  const escapado = escaparXml(texto);
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="220" height="70">` +
+    `<text x="-30" y="30" transform="rotate(-18 90 25)" font-size="11" ` +
+    `font-family="sans-serif" fill="white">${escapado}</text>` +
+    `<text x="60" y="65" transform="rotate(-18 160 60)" font-size="11" ` +
+    `font-family="sans-serif" fill="white">${escapado}</text>` +
+    `</svg>`;
+  const url = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-0 z-10 mix-blend-difference opacity-60"
+      style={{ backgroundImage: `url("${url}")`, backgroundRepeat: "repeat" }}
+    />
+  );
+}
+
+/** Aviso de responsabilidade (pedido do Romulo): explica pro usuário, antes de qualquer
+ * mensagem, por que a marca d'água existe e que a auditoria é real - "os usuários saberão
+ * que devem haver responsabilidade". Aparece tanto na lista de conversas quanto dentro de
+ * uma conversa aberta. */
+function AvisoAuditoriaMensagemPrivada() {
+  return (
+    <div className="mx-auto mt-4 max-w-2xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-xs text-amber-800">
+      Por segurança, toda mensagem aqui exibida recebe uma marca d&apos;água com o nome de
+      quem está vendo, e cada abertura de conversa é registrada num log de auditoria — use
+      essa comunicação com responsabilidade.
+    </div>
+  );
+}
+
 /** "Mensagem privada" (pedido do Romulo): conversa livre entre morador OU funcionário e um
  * ou mais funcionários com login do mesmo condomínio. Privacidade estrita - só quem
  * participa (autor + destinatários) enxerga, nem síndico por padrão.
@@ -42,6 +95,10 @@ function formatarDataHora(iso: string): string {
 export default function MensagensPrivadasPage() {
   const sessao = useSessaoObrigatoria();
   const permitido = sessao?.tipoPapel === "funcionario" || sessao?.tipoPapel === "morador";
+  // Perfil completo (síndico/sub-síndico/supervisor/encarregado) pode ver a auditoria de
+  // quem visualizou a conversa - mesmo critério de "perfil completo" usado em outras telas
+  // (perfil restrito = rondista/agente_convivio/porteiro).
+  const perfilCompleto = sessao?.tipoPapel === "funcionario" && !ehPerfilRestrito(sessao.perfil);
 
   const [conversas, setConversas] = useState<ConversaPrivadaResumoResponse[] | null>(null);
   const [erroLista, setErroLista] = useState<string | null>(null);
@@ -66,6 +123,34 @@ export default function MensagensPrivadasPage() {
   const [enviando, setEnviando] = useState(false);
   const [enviandoFotoDe, setEnviandoFotoDe] = useState<number | null>(null);
   const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+
+  // Relógio da marca d'água - atualiza a cada minuto pra ficar sempre correta enquanto a
+  // conversa fica aberta na tela (não precisa ser exata ao segundo, é só um dissuasivo).
+  const [horaMarcaDagua, setHoraMarcaDagua] = useState(() => new Date());
+  useEffect(() => {
+    if (!conversaAberta) return;
+    const intervalo = setInterval(() => setHoraMarcaDagua(new Date()), 60_000);
+    return () => clearInterval(intervalo);
+  }, [conversaAberta]);
+
+  // Auditoria (pedido do Romulo) - carregada só quando o perfil completo pede ("Ver
+  // visualizações"), não em toda abertura de conversa (evita uma chamada extra sempre).
+  const [visualizacoes, setVisualizacoes] = useState<ConversaPrivadaVisualizacaoResponse[] | null>(null);
+  const [carregandoVisualizacoes, setCarregandoVisualizacoes] = useState(false);
+  const [erroVisualizacoes, setErroVisualizacoes] = useState<string | null>(null);
+
+  async function handleVerVisualizacoes() {
+    if (!sessao || !conversaAberta) return;
+    setCarregandoVisualizacoes(true);
+    setErroVisualizacoes(null);
+    try {
+      setVisualizacoes(await listarVisualizacoesConversaPrivada(sessao.token, conversaAberta.id));
+    } catch (err) {
+      setErroVisualizacoes(err instanceof Error ? err.message : "Falha ao carregar as visualizações.");
+    } finally {
+      setCarregandoVisualizacoes(false);
+    }
+  }
 
   function recarregarLista(paginaAlvo = pagina) {
     if (!sessao) return;
@@ -139,6 +224,8 @@ export default function MensagensPrivadasPage() {
     if (!sessao) return;
     setErroDetalhe(null);
     setAbrindoId(id);
+    setVisualizacoes(null);
+    setErroVisualizacoes(null);
     try {
       setConversaAberta(await buscarConversaPrivada(sessao.token, id));
       recarregarLista();
@@ -251,6 +338,8 @@ export default function MensagensPrivadasPage() {
           ← Voltar pras conversas
         </button>
 
+        <AvisoAuditoriaMensagemPrivada />
+
         <div className="mx-auto mt-4 max-w-2xl">
           <div className="rounded-lg border border-slate-200 bg-white p-4">
             <p className="text-sm font-medium text-slate-900">
@@ -264,7 +353,15 @@ export default function MensagensPrivadasPage() {
 
           {erroDetalhe && <p className="mt-3 text-sm text-red-600">{erroDetalhe}</p>}
 
-          <div className="mt-4 space-y-3">
+          <div className="relative isolate mt-4 space-y-3">
+            <MarcaDaguaMensagens
+              texto={`${sessao.nome} · ${horaMarcaDagua.toLocaleString("pt-BR", {
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}`}
+            />
             {conversaAberta.mensagens.map((m) => (
               <div key={m.id} className={`flex ${m.minha ? "justify-end" : "justify-start"}`}>
                 <div
@@ -330,6 +427,37 @@ export default function MensagensPrivadasPage() {
             ))}
           </div>
 
+          {perfilCompleto && (
+            <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs text-slate-500">
+              {visualizacoes === null ? (
+                <button
+                  type="button"
+                  onClick={handleVerVisualizacoes}
+                  disabled={carregandoVisualizacoes}
+                  className="text-slate-500 underline hover:text-slate-700 disabled:opacity-50"
+                >
+                  {carregandoVisualizacoes ? "Carregando..." : "Ver quem visualizou essa conversa"}
+                </button>
+              ) : (
+                <>
+                  <p className="font-medium uppercase tracking-wide text-slate-400">Visualizações (auditoria)</p>
+                  {visualizacoes.length === 0 ? (
+                    <p className="mt-1">Ainda ninguém abriu essa conversa.</p>
+                  ) : (
+                    <ul className="mt-1 space-y-0.5">
+                      {visualizacoes.map((v, i) => (
+                        <li key={`${v.nome}-${v.visualizadoEm}-${i}`}>
+                          {v.nome} — {formatarDataHora(v.visualizadoEm)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+              {erroVisualizacoes && <p className="mt-1 text-red-600">{erroVisualizacoes}</p>}
+            </div>
+          )}
+
           <form onSubmit={handleEnviarResposta} className="mt-4 flex gap-2">
             <Input
               required
@@ -355,6 +483,8 @@ export default function MensagensPrivadasPage() {
         Conversa privada com {sessao.tipoPapel === "morador" ? "um ou mais funcionários" : "um morador ou outro funcionário"} -
         só quem participa vê.
       </p>
+
+      <AvisoAuditoriaMensagemPrivada />
 
       <div className="mx-auto mt-6 max-w-2xl">
         {formNovaAberto ? (

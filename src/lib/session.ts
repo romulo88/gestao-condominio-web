@@ -1,4 +1,4 @@
-import { FuncionarioPerfil, TipoPapel } from "./api";
+import { FuncionarioPerfil, TermosPendenteResponse, TipoPapel } from "./api";
 
 /** O que a tela precisa saber sobre quem está logado, sem decodificar o JWT toda hora. */
 export type Sessao = {
@@ -13,6 +13,11 @@ export type Sessao = {
    * mudanças. Trocar de perfil (`AppShell.handleTrocarContexto`) carrega esse valor pra
    * frente sem mudar - não é um login novo, é a mesma sessão com outro chapéu. */
   ultimoLoginAnterior: string | null;
+  /** Não nulo enquanto a pessoa não aceitar a versão vigente do termo de responsabilidade -
+   * `AppShell` mostra um modal bloqueante até isso ficar `null` (ver `aceitarTermos`).
+   * Calculado só no login de verdade (nunca reavaliado em tempo real durante a sessão) -
+   * trocar de perfil carrega o valor de sempre, igual `ultimoLoginAnterior`. */
+  termosPendente: TermosPendenteResponse | null;
 };
 
 // localStorage é por ORIGEM, não por caminho: outros sistemas no mesmo domínio (cada um no

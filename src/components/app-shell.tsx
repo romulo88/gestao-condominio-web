@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  aceitarTermos,
   ContextoDto,
   ehPerfilRestrito,
   existePendenciaMensagemPrivada,
@@ -20,6 +21,7 @@ import { SinoTarefas } from "@/components/sino-tarefas";
 import { MenuNotasPendentes } from "@/components/menu-notas-pendentes";
 import { MenuEtapaVencida } from "@/components/menu-etapa-vencida";
 import { AlertaMudancasStatus } from "@/components/alerta-mudancas-status";
+import { Button } from "@/components/ui";
 
 /** Links de navegação ao lado da marca, no topo - "ir pra uma tela". Cada um aparece só
  * pra quem realmente usa aquela tela: "Cadastro de condomínio" é administrador/
@@ -278,6 +280,27 @@ export function AppShell({
   const [trocando, setTrocando] = useState(false);
   const [erroContexto, setErroContexto] = useState<string | null>(null);
 
+  // Termo de responsabilidade (pedido do Romulo) - bloqueia a tela até aceitar, no
+  // primeiro login (ou quando a versão do texto mudar). `useState` inicializado da sessão
+  // pra sobreviver a `salvarSessao` disparando um re-render de `AppShell` sem remontar.
+  const [termosPendente, setTermosPendente] = useState(sessao.termosPendente);
+  const [aceitandoTermos, setAceitandoTermos] = useState(false);
+  const [erroTermos, setErroTermos] = useState<string | null>(null);
+
+  async function handleAceitarTermos() {
+    setErroTermos(null);
+    setAceitandoTermos(true);
+    try {
+      await aceitarTermos(sessao.token);
+      salvarSessao({ ...sessao, termosPendente: null });
+      setTermosPendente(null);
+    } catch (err) {
+      setErroTermos(err instanceof Error ? err.message : "Falha ao registrar o aceite.");
+    } finally {
+      setAceitandoTermos(false);
+    }
+  }
+
   function sair() {
     limparSessao();
     router.push("/login");
@@ -324,8 +347,9 @@ export function AppShell({
         condominioId: c.condominioId,
         condominioNome: c.condominioNome,
         // Trocar de perfil não é um login novo (mesma sessão, outro chapéu) - carrega o
-        // valor de sempre, sem recalcular (ver `AlertaMudancasStatus`).
+        // valor de sempre, sem recalcular (ver `AlertaMudancasStatus`/`termosPendente`).
         ultimoLoginAnterior: sessao.ultimoLoginAnterior,
+        termosPendente: sessao.termosPendente,
       });
       setModalAberto(false);
       router.push(destinoPosLogin(c.tipoPapel, c.perfil));
@@ -431,6 +455,23 @@ export function AppShell({
                 })}
             </div>
             {erroContexto && <p className="mt-4 text-sm text-red-600">{erroContexto}</p>}
+          </div>
+        </div>
+      )}
+
+      {termosPendente && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 px-4">
+          <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-lg">
+            <h2 className="text-sm font-semibold text-slate-900">Termo de responsabilidade</h2>
+            <div className="mt-3 max-h-64 overflow-y-auto whitespace-pre-wrap text-sm text-slate-600">
+              {termosPendente.texto}
+            </div>
+            {erroTermos && <p className="mt-3 text-sm text-red-600">{erroTermos}</p>}
+            <div className="mt-4 flex justify-end">
+              <Button onClick={handleAceitarTermos} disabled={aceitandoTermos}>
+                {aceitandoTermos ? "Registrando..." : "Li e concordo"}
+              </Button>
+            </div>
           </div>
         </div>
       )}
