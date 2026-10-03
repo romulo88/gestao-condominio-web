@@ -2235,7 +2235,10 @@ export type EventoPessoaResponse = {
   fotoUrl: string | null;
 };
 
-/** `espacoComumId`/`espacoComumNome` nulos = local é a própria unidade do morador. */
+/** `espacoComumId`/`espacoComumNome` nulos = local é a própria unidade do morador.
+ * `reforma` (pedido do Romulo) marca um evento entre vários criados pelo mesmo pedido de
+ * reforma (um por dia do intervalo informado na criação) - cada um é independente dali em
+ * diante, sem vínculo entre si. */
 export type EventoResponse = {
   id: number;
   condominioId: number;
@@ -2244,6 +2247,7 @@ export type EventoResponse = {
   motivo: string;
   data: string;
   horario: string | null;
+  reforma: boolean;
   moradorNome: string;
   unidade: string | null;
   veiculos: EventoVeiculoResponse[];
@@ -2251,23 +2255,30 @@ export type EventoResponse = {
   createdAt: string;
 };
 
+/** `reforma`/`dataFim`: só com `espacoComumId` omitido (reforma é sempre na própria
+ * unidade) - `data` vira o início e `dataFim` o fim de um intervalo de até 15 dias; o
+ * backend devolve um evento por dia desse intervalo (ver `criarEvento`). */
 export type EventoCreateRequest = {
   espacoComumId?: number | null;
   motivo: string;
   data: string;
   horario?: string | null;
+  reforma?: boolean;
+  dataFim?: string | null;
   veiculos: { placa: string }[];
   pessoas: { nome: string; documento: string }[];
 };
 
-/** Só morador. 400 se a data for no passado ou não vier nenhuma pessoa. */
-export async function criarEvento(token: string, request: EventoCreateRequest): Promise<EventoResponse> {
+/** Só morador. 400 se a data for no passado, não vier nenhuma pessoa, ou dados de reforma
+ * inválidos. Devolve 1 evento por dia do intervalo quando `reforma` é true, senão sempre
+ * um array com 1 item. */
+export async function criarEvento(token: string, request: EventoCreateRequest): Promise<EventoResponse[]> {
   const res = await fetch(`${API_URL}/api/eventos`, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify(request),
   });
-  return parseOrThrow<EventoResponse>(res);
+  return parseOrThrow<EventoResponse[]>(res);
 }
 
 /** Diferente de {@link EventoCreateRequest}: cada item de `veiculos`/`pessoas` tem um `id`
@@ -2310,6 +2321,28 @@ export async function excluirEvento(token: string, id: number): Promise<void> {
 export async function listarMeusEventos(token: string): Promise<EventoResponse[]> {
   const res = await fetch(`${API_URL}/api/eventos/meus`, { headers: authHeaders(token) });
   return parseOrThrow<EventoResponse[]>(res);
+}
+
+/** Autocomplete de "visitante recorrente" (pedido do Romulo): nome+documento já usados pelo
+ * PRÓPRIO morador logado em algum evento anterior dele - nunca de outro morador. */
+export type EventoPessoaCandidatoResponse = {
+  nome: string;
+  documento: string;
+};
+
+export async function listarCandidatosPessoasEvento(token: string): Promise<EventoPessoaCandidatoResponse[]> {
+  const res = await fetch(`${API_URL}/api/eventos/candidatos-pessoas`, { headers: authHeaders(token) });
+  return parseOrThrow<EventoPessoaCandidatoResponse[]>(res);
+}
+
+/** Mesmo espírito de `EventoPessoaCandidatoResponse`, pra veículo (placa). */
+export type EventoVeiculoCandidatoResponse = {
+  placa: string;
+};
+
+export async function listarCandidatosVeiculosEvento(token: string): Promise<EventoVeiculoCandidatoResponse[]> {
+  const res = await fetch(`${API_URL}/api/eventos/candidatos-veiculos`, { headers: authHeaders(token) });
+  return parseOrThrow<EventoVeiculoCandidatoResponse[]>(res);
 }
 
 export type FiltrosEventos = {
