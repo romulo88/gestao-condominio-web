@@ -5,9 +5,19 @@
 // rebuildar a imagem a cada teste. Ainda dá pra sobrescrever via NEXT_PUBLIC_API_URL se um
 // dia precisar apontar o navegador direto pro backend (ex.: backend com domínio próprio).
 import { BASE_PATH } from "./base-path";
+import { getSessaoSnapshot, limparSessao, tokenAtual } from "./session";
 
 // Com `basePath`, o proxy /api/* também passa a existir sob o prefixo (ex.: /commander/api/*).
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? BASE_PATH;
+
+/** Token que vai de fato pro servidor. As telas continuam passando `sessao.token` (o do login,
+ * estável), mas o servidor só aceita o token por 15 minutos de inatividade - o que vale é o
+ * último renovado (ver `tokenAtual` em `session.ts`). Resolver aqui, num lugar só, evita que
+ * qualquer tela (ou intervalo/closure de longa duração, como o envio de pontos da ronda)
+ * fique mandando um token velho. */
+function bearer(token: string): string {
+  return tokenAtual(token);
+}
 
 /** Monta a URL final de uma imagem servida pelo backend (`DemandaDocumentoResponse.url`,
  * `fotoUrl`, `gifUrl` - agora um caminho relativo tipo `/api/.../arquivo`, não mais link
@@ -16,7 +26,7 @@ export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? BASE_PATH;
  * então o token vai pela query string - só esses caminhos específicos aceitam isso (ver
  * `JwtAuthenticationFilter` no backend), então não faz sentido reaproveitar em outro lugar. */
 export function urlImagem(caminho: string, token: string): string {
-  return `${API_URL}${caminho}?token=${encodeURIComponent(token)}`;
+  return `${API_URL}${caminho}?token=${encodeURIComponent(bearer(token))}`;
 }
 
 /** Envelope de paginação (pedido do Romulo: paginar Funcionários/Moradores do cadastro de
@@ -112,6 +122,16 @@ export type ErrorResponse = {
 /** Lança um Error com a mensagem vinda do backend (ou um fallback) quando a resposta não é 2xx. */
 async function parseOrThrow<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => null);
+  // Token vencido/inválido NÃO passa pelo handler de erros do backend - o Spring Security
+  // responde 403 (às vezes 401) com corpo VAZIO. Já uma recusa de regra de negócio
+  // (`ForbiddenException`, `UnauthorizedException`) sempre traz o JSON de erro. Então "401/403
+  // sem corpo, estando logado" = sessão acabou (15 min de inatividade): limpa a sessão, e
+  // `useSessaoObrigatoria` leva a tela pro login sozinha. Sem sessão guardada (ex.: a própria
+  // tela de login) não faz nada, o erro segue normal.
+  if (!res.ok && body === null && (res.status === 401 || res.status === 403) && getSessaoSnapshot()) {
+    limparSessao();
+    throw new Error("Sua sessão expirou por inatividade - entre novamente.");
+  }
   if (!res.ok) {
     const erro = body as ErrorResponse | null;
     throw new Error(erro?.message ?? `Erro inesperado (HTTP ${res.status})`);
@@ -164,6 +184,13 @@ export async function trocarSenha(
   if (!res.ok) {
     await parseOrThrow(res);
   }
+}
+
+/** Renova o token da sessão atual (mesmo contexto) - o token vale 15 minutos de inatividade,
+ * ver `use-renovacao-sessao.ts`. */
+export async function renovarSessao(token: string): Promise<TokenResponse> {
+  const res = await fetch(`${API_URL}/api/auth/renovar`, { method: "POST", headers: authHeaders(token) });
+  return parseOrThrow<TokenResponse>(res);
 }
 
 export async function selecionarContexto(
@@ -246,7 +273,7 @@ export type CondominioUpdateRequest = CondominioCreateRequest;
 
 /** Anexa `Authorization: Bearer <token>` - usar em toda chamada autenticada. */
 function authHeaders(token: string): HeadersInit {
-  return { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+  return { "Content-Type": "application/json", Authorization: `Bearer ${bearer(token)}` };
 }
 
 export async function listarCondominios(token: string): Promise<CondominioResponse[]> {
@@ -289,7 +316,7 @@ export async function uploadGifCondominio(token: string, id: number, arquivo: Fi
   corpo.append("arquivo", arquivo);
   const res = await fetch(`${API_URL}/api/condominios/${id}/gif`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${bearer(token)}` },
     body: corpo,
   });
   return parseOrThrow<CondominioResponse>(res);
@@ -435,7 +462,7 @@ export async function uploadFotoFuncionario(token: string, id: number, arquivo: 
   corpo.append("arquivo", arquivo);
   const res = await fetch(`${API_URL}/api/funcionarios/${id}/foto`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${bearer(token)}` },
     body: corpo,
   });
   return parseOrThrow<FuncionarioResponse>(res);
@@ -1240,6 +1267,11 @@ export type DemandaResponse = {
   statusKanbanDesde: string | null;
   createdAt: string;
   updatedAt: string;
+  /** True só pra quem ABRIU a demanda enquanto ela está pendente de aprovação - controla a
+   * lixeira e o lápis (editar título/descrição). Calculado no servidor (ver
+   * `DemandaService.podeEditarOuExcluir`): com `identificarSolicitante` falso o nome do
+   * solicitante nem vem, então a tela não teria como inferir. */
+  podeEditarOuExcluir: boolean;
 };
 
 export type DemandaCreateRequest = {
@@ -1332,6 +1364,29 @@ export async function criarDemanda(token: string, request: DemandaCreateRequest)
     body: JSON.stringify(request),
   });
   return parseOrThrow<DemandaResponse>(res);
+}
+
+/** Quem abriu a demanda edita título e descrição - só enquanto ela está pendente. */
+export async function atualizarDemanda(
+  token: string,
+  id: number,
+  request: { titulo: string; descricao: string },
+): Promise<DemandaResponse> {
+  const res = await fetch(`${API_URL}/api/demandas/${id}`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify(request),
+  });
+  return parseOrThrow<DemandaResponse>(res);
+}
+
+/** Quem abriu a demanda a exclui - só enquanto ela está pendente. Exclusão física, leva
+ * junto anexos, notas, etapas e o que mais estiver pendurado nela. */
+export async function excluirDemanda(token: string, id: number): Promise<void> {
+  const res = await fetch(`${API_URL}/api/demandas/${id}`, { method: "DELETE", headers: authHeaders(token) });
+  if (!res.ok) {
+    await parseOrThrow(res);
+  }
 }
 
 /** Aprova e já envia a demanda para uma coluna do Kanban do condomínio - só enquanto pendente. */
@@ -1662,7 +1717,7 @@ export async function uploadDocumentoDemanda(
   corpo.append("arquivo", arquivo);
   const res = await fetch(`${API_URL}/api/demanda-documentos`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${bearer(token)}` },
     body: corpo,
   });
   return parseOrThrow<DemandaDocumentoResponse>(res);
@@ -1934,10 +1989,19 @@ export async function existePendenciaMensagemPrivada(token: string): Promise<boo
   return parseOrThrow<boolean>(res);
 }
 
-/** Abre o chat completo - o backend marca como vista por quem está abrindo na mesma
- * tacada (some o destaque vermelho). */
-export async function buscarConversaPrivada(token: string, id: number): Promise<ConversaPrivadaDetalheResponse> {
-  const res = await fetch(`${API_URL}/api/conversas-privadas/${id}`, { headers: authHeaders(token) });
+/** Abre o chat completo exigindo a SENHA do próprio usuário (a cada abertura - computador
+ * compartilhado). O backend marca como vista por quem está abrindo na mesma tacada (some o
+ * destaque vermelho). Senha errada volta como erro 400 ("Senha incorreta"). */
+export async function abrirConversaPrivada(
+  token: string,
+  id: number,
+  senha: string,
+): Promise<ConversaPrivadaDetalheResponse> {
+  const res = await fetch(`${API_URL}/api/conversas-privadas/${id}/abrir`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ senha }),
+  });
   return parseOrThrow<ConversaPrivadaDetalheResponse>(res);
 }
 
@@ -1991,7 +2055,7 @@ export async function uploadFotoMensagemPrivada(
   corpo.append("arquivo", arquivo);
   const res = await fetch(`${API_URL}/api/mensagem-privada-documentos`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${bearer(token)}` },
     body: corpo,
   });
   return parseOrThrow<MensagemPrivadaDocumentoResponse>(res);
@@ -2401,7 +2465,7 @@ export async function uploadFotoPessoaEvento(
   corpo.append("arquivo", arquivo);
   const res = await fetch(`${API_URL}/api/eventos/${eventoId}/pessoas/${pessoaId}/foto`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${bearer(token)}` },
     body: corpo,
   });
   return parseOrThrow<EventoResponse>(res);

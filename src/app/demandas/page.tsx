@@ -7,6 +7,7 @@ import {
   alternarSigiloDemanda,
   aprovarDemanda,
   atribuirResponsavel,
+  atualizarDemanda,
   CandidatoAcessoResponse,
   CandidatoResponsavelResponse,
   concederAcessoSigiloso,
@@ -20,6 +21,7 @@ import {
   DemandaResponsavelResponse,
   DemandaStatusAprovacao,
   ehPerfilRestrito,
+  excluirDemanda,
   listarAcessoSigiloso,
   listarCandidatosAcesso,
   listarCandidatosResponsavel,
@@ -55,6 +57,8 @@ import {
   IconeChecklist,
   IconeColunas,
   IconeCopiar,
+  IconeLapis,
+  IconeLixeira,
   IconeNotaLida,
   IconeNotaPendente,
   IconePlay,
@@ -65,6 +69,7 @@ import {
   IconeUpload,
 } from "@/components/icons";
 import { FormNovaDemanda } from "@/components/form-nova-demanda";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { Button, Input } from "@/components/ui";
 
 const STATUS_LABEL: Record<DemandaStatusAprovacao, string> = {
@@ -174,6 +179,66 @@ function DemandasPageInner() {
       setTimeout(() => setTituloCopiadoId(null), 2000);
     } catch {
       // Silencioso - é só um atalho de conveniência, não vale mostrar erro pra isso.
+    }
+  }
+
+  // Editar/excluir a PRÓPRIA demanda enquanto pendente (pedido do Romulo) - `podeEditarOuExcluir`
+  // vem calculado do servidor (só o solicitante, só pendente). Só uma linha em edição por vez.
+  const [editandoId, setEditandoId] = useState<number | null>(null);
+  const [edicao, setEdicao] = useState({ titulo: "", descricao: "" });
+  const [salvandoEdicao, setSalvandoEdicao] = useState(false);
+  const [erroEdicao, setErroEdicao] = useState<string | null>(null);
+  const [excluindoDemandaId, setExcluindoDemandaId] = useState<number | null>(null);
+
+  function abrirEdicao(d: DemandaResponse) {
+    setEdicao({ titulo: d.titulo, descricao: d.descricao });
+    setErroEdicao(null);
+    setEditandoId(d.id);
+    // O formulário mora na área expandida da linha - expande se ainda estiver colapsada.
+    setExpandidosIds((atual) => (atual.has(d.id) ? atual : new Set(atual).add(d.id)));
+  }
+
+  async function handleSalvarEdicao(e: React.FormEvent, demandaId: number) {
+    e.preventDefault();
+    if (!sessao) return;
+    setErroEdicao(null);
+    setSalvandoEdicao(true);
+    try {
+      const atualizada = await atualizarDemanda(sessao.token, demandaId, edicao);
+      // Só o texto muda - o resto do item (perfil do solicitante, flags de nota/etapa...)
+      // vem de cálculos em lote da listagem que a resposta isolada não refaz.
+      setDemandas((atual) =>
+        atual
+          ? atual.map((x) =>
+              x.id === demandaId
+                ? { ...x, titulo: atualizada.titulo, descricao: atualizada.descricao, updatedAt: atualizada.updatedAt }
+                : x,
+            )
+          : atual,
+      );
+      setEditandoId(null);
+    } catch (err) {
+      setErroEdicao(err instanceof Error ? err.message : "Falha ao salvar a demanda.");
+    } finally {
+      setSalvandoEdicao(false);
+    }
+  }
+
+  async function handleExcluirDemanda(d: DemandaResponse) {
+    if (!sessao) return;
+    if (!window.confirm(`Excluir a demanda #${d.id} "${d.titulo}"? Essa ação não pode ser desfeita.`)) return;
+    setErroLista(null);
+    setExcluindoDemandaId(d.id);
+    try {
+      await excluirDemanda(sessao.token, d.id);
+      if (editandoId === d.id) setEditandoId(null);
+      // Recarrega a página (não só tira o item local): com paginação de verdade, o total de
+      // itens/páginas e o que entra no lugar mudam.
+      recarregarPaginaDemandas();
+    } catch (err) {
+      setErroLista(err instanceof Error ? err.message : "Falha ao excluir a demanda.");
+    } finally {
+      setExcluindoDemandaId(null);
     }
   }
 
@@ -1305,6 +1370,34 @@ function DemandasPageInner() {
                     >
                       <IconeCopiar className="h-3.5 w-3.5" />
                     </button>
+                    {d.podeEditarOuExcluir && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            abrirEdicao(d);
+                          }}
+                          title="Editar título e descrição"
+                          disabled={excluindoDemandaId !== null}
+                          className="ml-1.5 shrink-0 text-slate-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-30"
+                        >
+                          <IconeLapis className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleExcluirDemanda(d);
+                          }}
+                          title="Excluir demanda"
+                          disabled={excluindoDemandaId !== null}
+                          className="ml-1.5 shrink-0 text-slate-400 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30"
+                        >
+                          <IconeLixeira className="h-3.5 w-3.5" />
+                        </button>
+                      </>
+                    )}
                     {d.sigilosa && <span className="ml-1.5 text-xs font-normal text-slate-400">(sigilosa)</span>}
                   </p>
                   <span className="flex shrink-0 items-center gap-2">
@@ -1317,7 +1410,34 @@ function DemandasPageInner() {
 
                 {expandida && (
                   <>
-                <Markdown texto={d.descricao} className="mt-2 text-sm text-slate-600" />
+                {editandoId === d.id ? (
+                  <form onSubmit={(e) => handleSalvarEdicao(e, d.id)} className="mt-3 space-y-2">
+                    <Input
+                      required
+                      placeholder="Título"
+                      value={edicao.titulo}
+                      onChange={(e) => setEdicao((x) => ({ ...x, titulo: e.target.value }))}
+                    />
+                    <MarkdownEditor
+                      required
+                      placeholder="Descrição"
+                      value={edicao.descricao}
+                      onChange={(descricao) => setEdicao((x) => ({ ...x, descricao }))}
+                      rows={6}
+                    />
+                    {erroEdicao && <p className="text-sm text-red-600">{erroEdicao}</p>}
+                    <div className="flex justify-end gap-2">
+                      <Button type="button" variant="secondary" onClick={() => setEditandoId(null)} disabled={salvandoEdicao}>
+                        Cancelar
+                      </Button>
+                      <Button type="submit" disabled={salvandoEdicao}>
+                        {salvandoEdicao ? "Salvando..." : "Salvar"}
+                      </Button>
+                    </div>
+                  </form>
+                ) : (
+                  <Markdown texto={d.descricao} className="mt-2 text-sm text-slate-600" />
+                )}
                 <p className="mt-2 text-xs italic text-slate-400">
                   Aberta por {d.identificarSolicitante ? d.solicitanteNome : "Anônimo"} (
                   {d.solicitanteTipo === "morador"

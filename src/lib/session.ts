@@ -1,7 +1,13 @@
-import { FuncionarioPerfil, TermosPendenteResponse, TipoPapel } from "./api";
+import type { FuncionarioPerfil, TermosPendenteResponse, TipoPapel } from "./api";
 
 /** O que a tela precisa saber sobre quem está logado, sem decodificar o JWT toda hora. */
 export type Sessao = {
+  /** Token emitido no login (ou na troca de perfil) - fica ESTÁVEL durante a sessão, de
+   * propósito: várias telas usam isso como dependência de efeito e como chave de "alerta já
+   * mostrado". NÃO é o token que vai pro servidor depois dos primeiros minutos: o token vale
+   * 15 minutos de inatividade e é renovado em segredo (ver `tokenAtual`/`guardarTokenRenovado`
+   * e `use-renovacao-sessao.ts`). Toda chamada de API resolve o token certo sozinha
+   * (`bearer` em `api.ts`), então as telas continuam passando `sessao.token` como sempre. */
   token: string;
   nome: string;
   tipoPapel: TipoPapel;
@@ -20,9 +26,57 @@ export type Sessao = {
   termosPendente: TermosPendenteResponse | null;
 };
 
-// localStorage é por ORIGEM, não por caminho: outros sistemas no mesmo domínio (cada um no
-// seu prefixo) enxergam as mesmas chaves - por isso a chave tem prefixo próprio.
+// A sessão mora em `sessionStorage` (pedido do Romulo: computador compartilhado no escritório
+// e na portaria) - fechar o navegador/aba encerra a sessão, em vez de deixar a tela de quem
+// saiu sem clicar em "Sair" esperando o próximo usuário. Consequência aceita: abrir o sistema
+// numa aba nova pede login de novo. A chave tem prefixo próprio porque o storage é por
+// ORIGEM, não por caminho: outros sistemas no mesmo domínio enxergam as mesmas chaves.
 const CHAVE = "commander:sessao";
+// Token que vai de fato pro servidor (renovado em segredo enquanto a pessoa usa a tela) +
+// quando, NO RELÓGIO DESTE NAVEGADOR, foi obtido. Medir o prazo por relógio local (e não pelo
+// `exp` do JWT) evita derrubar todo mundo num computador com a hora errada.
+const CHAVE_TOKEN = "commander:token";
+
+/** Quanto o servidor aceita o token sem renovação - espelha `jwt.expiracao-completo-ms` do
+ * `application.yml` (15 minutos de INATIVIDADE). */
+export const VALIDADE_TOKEN_MS = 15 * 60_000;
+
+type TokenGuardado = { token: string; obtidoEm: number };
+
+function lerTokenGuardado(): TokenGuardado | null {
+  try {
+    const bruto = sessionStorage.getItem(CHAVE_TOKEN);
+    return bruto ? (JSON.parse(bruto) as TokenGuardado) : null;
+  } catch {
+    return null;
+  }
+}
+
+function gravarTokenGuardado(token: string) {
+  try {
+    sessionStorage.setItem(CHAVE_TOKEN, JSON.stringify({ token, obtidoEm: Date.now() } satisfies TokenGuardado));
+  } catch {
+    /* sem persistência - a próxima chamada usa `sessao.token`, que é o do login */
+  }
+}
+
+/** Token pra mandar ao servidor agora: o último renovado, ou `padrao` (o do login) se ainda
+ * não houve renovação. */
+export function tokenAtual(padrao: string): string {
+  return lerTokenGuardado()?.token ?? padrao;
+}
+
+/** Guarda o token renovado SEM mexer em `Sessao` (e sem notificar ninguém) - a identidade da
+ * sessão fica igual, só o que vai pro servidor muda. */
+export function guardarTokenRenovado(token: string) {
+  gravarTokenGuardado(token);
+}
+
+/** Há quanto tempo (relógio local) o token atual foi obtido - null sem sessão. */
+export function idadeDoTokenAtualMs(): number | null {
+  const guardado = lerTokenGuardado();
+  return guardado ? Date.now() - guardado.obtidoEm : null;
+}
 
 // Cache simples pra `getSessaoSnapshot` devolver a MESMA referência enquanto o valor
 // bruto não mudar - `useSyncExternalStore` exige isso (senão re-renderiza pra sempre,
@@ -30,10 +84,31 @@ const CHAVE = "commander:sessao";
 let ultimoBruto: string | null | undefined;
 let ultimoParseado: Sessao | null = null;
 
+let legadoLimpo = false;
+
+/** Antes desta mudança a sessão ficava em `localStorage`, que sobrevive ao fechamento do
+ * navegador - apaga o que sobrou lá (uma vez por carregamento da página), senão a sessão de
+ * alguém que nunca clicou em "Sair" continuaria esperando o próximo usuário daquele
+ * computador. */
+function limparSessaoLegada() {
+  if (legadoLimpo) return;
+  legadoLimpo = true;
+  try {
+    localStorage.removeItem(CHAVE);
+  } catch {
+    /* sem acesso ao localStorage - nada a limpar */
+  }
+}
+
+// Roda assim que o módulo carrega no navegador (login inclusive - a tela de login não lê a
+// sessão, então não bastaria limpar só dentro de `lerDoStorage`).
+if (typeof window !== "undefined") limparSessaoLegada();
+
 function lerDoStorage(): Sessao | null {
+  limparSessaoLegada();
   let bruto: string | null;
   try {
-    bruto = localStorage.getItem(CHAVE);
+    bruto = sessionStorage.getItem(CHAVE);
   } catch {
     bruto = null;
   }
@@ -52,18 +127,14 @@ function notificar() {
   for (const l of listeners) l();
 }
 
-/** Assina mudanças de sessão - inclui outras abas (evento `storage`) e a própria aba
- * (que não dispara `storage` sozinha, por isso `salvarSessao`/`limparSessao` chamam
- * `notificar()` manualmente). Usado por `useSessaoObrigatoria` via `useSyncExternalStore`. */
+/** Assina mudanças de sessão. `sessionStorage` é por aba e não dispara o evento `storage`
+ * entre abas (diferente do `localStorage` de antes), então só `salvarSessao`/`limparSessao`
+ * - que chamam `notificar()` manualmente - mexem na sessão desta aba. Usado por
+ * `useSessaoObrigatoria` via `useSyncExternalStore`. */
 export function assinarSessao(listener: () => void): () => void {
   listeners.add(listener);
-  const aoMudarStorage = (e: StorageEvent) => {
-    if (e.key === CHAVE || e.key === null) listener();
-  };
-  window.addEventListener("storage", aoMudarStorage);
   return () => {
     listeners.delete(listener);
-    window.removeEventListener("storage", aoMudarStorage);
   };
 }
 
@@ -71,18 +142,26 @@ export function getSessaoSnapshot(): Sessao | null {
   return lerDoStorage();
 }
 
-/** No servidor não existe `localStorage` - sempre "sem sessão" até hidratar no navegador. */
+/** No servidor não existe `sessionStorage` - sempre "sem sessão" até hidratar no navegador. */
 export function getSessaoServerSnapshot(): Sessao | null {
   return null;
 }
 
 export function salvarSessao(sessao: Sessao) {
-  localStorage.setItem(CHAVE, JSON.stringify(sessao));
+  // Token diferente do já guardado = login novo ou troca de perfil: o token de verdade
+  // recomeça dele. Mesmo token (ex.: aceitar o termo, que só reescreve a sessão) NÃO pode
+  // sobrescrever o token renovado com o do login - esse já pode estar vencido.
+  const anterior = getSessaoSnapshot();
+  if (!anterior || anterior.token !== sessao.token) {
+    gravarTokenGuardado(sessao.token);
+  }
+  sessionStorage.setItem(CHAVE, JSON.stringify(sessao));
   notificar();
 }
 
 export function limparSessao() {
-  localStorage.removeItem(CHAVE);
+  sessionStorage.removeItem(CHAVE);
+  sessionStorage.removeItem(CHAVE_TOKEN);
   notificar();
 }
 

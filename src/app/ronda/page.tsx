@@ -14,6 +14,7 @@ import {
   TipoRonda,
 } from "@/lib/api";
 import { useSessaoObrigatoria } from "@/lib/use-sessao-obrigatoria";
+import { renovarSessaoSeVelha } from "@/lib/use-renovacao-sessao";
 import { AppShell } from "@/components/app-shell";
 import { FormNovaDemanda } from "@/components/form-nova-demanda";
 import { MapaRonda } from "@/components/mapa-ronda";
@@ -108,6 +109,10 @@ export default function RondaPage() {
     pontosPendentesRef.current = [];
     try {
       await enviarPontosRonda(sessao.token, rondaId, lote);
+      // Ronda em andamento mantém a sessão viva (pedido do Romulo): o rondista caminhando,
+      // com a tela parada, não gera clique nem toque - mas está trabalhando. Só conta o envio
+      // que deu certo (se o token já tivesse vencido, o envio acima teria falhado).
+      void renovarSessaoSeVelha();
     } catch {
       // Sinal ruim na moto - mantém no buffer pra tentar de novo no próximo ciclo (ou no
       // flush final de "Finalizar ronda").

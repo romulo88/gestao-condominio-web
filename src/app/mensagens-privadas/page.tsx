@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  buscarConversaPrivada,
+  abrirConversaPrivada,
   CandidatoDestinatarioResponse,
   ConversaPrivadaDetalheResponse,
   ConversaPrivadaResumoResponse,
@@ -220,18 +220,45 @@ export default function MensagensPrivadasPage() {
     }
   }
 
-  async function abrirConversa(id: number) {
-    if (!sessao) return;
+  // Senha do próprio usuário a CADA conversa aberta (pedido do Romulo: computador compartilhado -
+  // quem cair numa sessão esquecida aberta, por exemplo a do síndico, não lê as conversas).
+  // O backend é quem confere (`POST /{id}/abrir`) - não há mais como ler uma conversa sem ela.
+  const [conversaPedindoSenhaId, setConversaPedindoSenhaId] = useState<number | null>(null);
+  const [senhaConfirmacao, setSenhaConfirmacao] = useState("");
+  const [erroSenha, setErroSenha] = useState<string | null>(null);
+
+  function pedirSenhaParaAbrir(id: number) {
+    setSenhaConfirmacao("");
+    setErroSenha(null);
+    setConversaPedindoSenhaId(id);
+  }
+
+  function cancelarPedidoDeSenha() {
+    if (abrindoId !== null) return;
+    setConversaPedindoSenhaId(null);
+    setSenhaConfirmacao("");
+    setErroSenha(null);
+  }
+
+  async function handleConfirmarSenha(e: React.FormEvent) {
+    e.preventDefault();
+    if (!sessao || conversaPedindoSenhaId === null) return;
+    const id = conversaPedindoSenhaId;
+    setErroSenha(null);
     setErroDetalhe(null);
     setAbrindoId(id);
-    setVisualizacoes(null);
-    setErroVisualizacoes(null);
     try {
-      setConversaAberta(await buscarConversaPrivada(sessao.token, id));
+      const detalhe = await abrirConversaPrivada(sessao.token, id, senhaConfirmacao);
+      setVisualizacoes(null);
+      setErroVisualizacoes(null);
+      setConversaAberta(detalhe);
+      setConversaPedindoSenhaId(null);
+      setSenhaConfirmacao("");
       recarregarLista();
       window.dispatchEvent(new Event(EVENTO_MENSAGEM_PRIVADA_ATUALIZADA));
     } catch (err) {
-      setErroDetalhe(err instanceof Error ? err.message : "Falha ao abrir a conversa.");
+      setErroSenha(err instanceof Error ? err.message : "Falha ao abrir a conversa.");
+      setSenhaConfirmacao("");
     } finally {
       setAbrindoId(null);
     }
@@ -567,7 +594,7 @@ export default function MensagensPrivadasPage() {
                   key={c.id}
                   type="button"
                   disabled={abrindoId === c.id}
-                  onClick={() => abrirConversa(c.id)}
+                  onClick={() => pedirSenhaParaAbrir(c.id)}
                   className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50 disabled:opacity-50"
                 >
                   <div className="min-w-0">
@@ -578,10 +605,11 @@ export default function MensagensPrivadasPage() {
                       )}{" "}
                       <span className="font-normal text-slate-400">→ {c.destinatariosTexto}</span>
                     </p>
-                    <p className="mt-0.5 truncate text-sm text-slate-500">
-                      {c.ultimaMensagemAutorNome ? `${c.ultimaMensagemAutorNome}: ` : ""}
-                      {c.ultimaMensagemTexto}
-                    </p>
+                    {/* Sem prévia do texto da última mensagem (pedido do Romulo): computador
+                        compartilhado - o conteúdo só aparece depois da senha (ver
+                        `pedirSenhaParaAbrir`). O backend ainda manda `ultimaMensagemTexto` no
+                        resumo; a tela só não o mostra. */}
+                    <p className="mt-0.5 truncate text-sm text-slate-400">Toque para abrir (pede sua senha)</p>
                   </div>
                   <div className="flex flex-shrink-0 flex-col items-end gap-1">
                     <span className="text-xs text-slate-400">{formatarDataHora(c.ultimaMensagemEm)}</span>
@@ -619,6 +647,45 @@ export default function MensagensPrivadasPage() {
           )}
         </div>
       </div>
+
+      {conversaPedindoSenhaId !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+          onClick={cancelarPedidoDeSenha}
+        >
+          <form
+            onSubmit={handleConfirmarSenha}
+            className="w-full max-w-sm rounded-lg bg-white p-5 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-sm font-semibold text-slate-900">Confirme sua senha</h2>
+            <p className="mt-1 text-xs text-slate-400">
+              Pedimos a sua senha a cada vez que uma conversa privada é aberta.
+            </p>
+            {/* `new-password` de propósito: o navegador não preenche sozinho uma senha salva - preencher
+                sozinho anularia a confirmação num computador compartilhado. */}
+            <Input
+              autoFocus
+              required
+              type="password"
+              autoComplete="new-password"
+              placeholder="Sua senha"
+              value={senhaConfirmacao}
+              onChange={(e) => setSenhaConfirmacao(e.target.value)}
+              className="mt-3"
+            />
+            {erroSenha && <p className="mt-2 text-sm text-red-600">{erroSenha}</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={cancelarPedidoDeSenha} disabled={abrindoId !== null}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={abrindoId !== null || !senhaConfirmacao}>
+                {abrindoId !== null ? "Abrindo..." : "Abrir conversa"}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
     </AppShell>
   );
 }

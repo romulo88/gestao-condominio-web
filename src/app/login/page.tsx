@@ -31,7 +31,6 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [mostrarSenha, setMostrarSenha] = useState(false);
-  const [manterConectado, setManterConectado] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -240,16 +239,6 @@ export default function LoginPage() {
             {mostrarSenha ? <IconeOlhoFechado className="h-5 w-5" /> : <IconeOlho className="h-5 w-5" />}
           </button>
         </div>
-
-        <label className="flex items-center gap-2 pt-1 text-sm text-slate-600">
-          <input
-            type="checkbox"
-            checked={manterConectado}
-            onChange={(e) => setManterConectado(e.target.checked)}
-            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-          />
-          Manter conectado
-        </label>
 
         {mensagemSucesso && <p className="text-sm text-emerald-600">{mensagemSucesso}</p>}
         {erro && <p className="text-sm text-red-600">{erro}</p>}

@@ -15,6 +15,7 @@ import {
   trocarContexto,
 } from "@/lib/api";
 import { destinoPosLogin, limparSessao, salvarSessao, Sessao } from "@/lib/session";
+import { useRenovacaoSessao } from "@/lib/use-renovacao-sessao";
 import { IconeCasa } from "@/components/auth-layout";
 import { IconeMensagemPrivada, IconeSair } from "@/components/icons";
 import { SinoTarefas } from "@/components/sino-tarefas";
@@ -273,6 +274,8 @@ export function AppShell({
   wide?: boolean | "full";
 }) {
   const router = useRouter();
+  // 15 minutos de inatividade derrubam a sessão; atividade renova (ver `use-renovacao-sessao.ts`).
+  useRenovacaoSessao();
 
   const [modalAberto, setModalAberto] = useState(false);
   const [contextos, setContextos] = useState<ContextoDto[] | null>(null);
